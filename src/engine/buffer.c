@@ -1,4 +1,5 @@
 #include "buffer.h"
+#include "utils/strings.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -8,16 +9,14 @@
 
 static uint32_t _next_buf_id = 1;
 
-static char* qicto_strndup(const char* s, size_t n) {
-    size_t len = strnlen(s, n);
-    char* result = malloc(len + 1);
-    if (!result) return NULL;
-    memcpy(result, s, len);
-    result[len] = '\0';
-    return result;
+/* Allocate a buffer with a single empty line. Caller must free the returned
+ * string when done. Thin wrapper used in the few spots where we need a
+ * heap-allocated empty string without going through the utils module. */
+static char* qicto_strdup_empty(void) {
+    char* r = malloc(1);
+    if (r) r[0] = '\0';
+    return r;
 }
-
-#define strndup qicto_strndup
 
 static void buffer_ensure_capacity(buffer_t* buf, size_t needed) {
     while (buf->text.capacity < needed) {
@@ -85,7 +84,7 @@ buffer_t* buffer_new(const char* filename) {
     }
 
     buffer_ensure_capacity(buf, 1);
-    buf->text.lines[0] = strdup("");
+    buf->text.lines[0] = qicto_strdup_empty();
     buf->text.line_count = 1;
     buf->btype = QICTO_BUFTYPE_TEXT;
     buf->dirty = false;
@@ -147,7 +146,7 @@ int buffer_load_file(buffer_t* buf, const char* filename) {
 
     if (rd == 0) {
         buffer_ensure_capacity(buf, 1);
-        buf->text.lines[0] = strdup("");
+        buf->text.lines[0] = qicto_strdup_empty();
         buf->text.line_count = 1;
         free(data);
         return 0;
@@ -167,7 +166,7 @@ int buffer_load_file(buffer_t* buf, const char* filename) {
                 len--;
             }
             buffer_ensure_capacity(buf, line_idx + 1);
-            buf->text.lines[line_idx++] = strndup(line_start, len + 1);
+            buf->text.lines[line_idx++] = qstr_ndup(line_start, len);
             line_start = p + 1;
         }
         p++;
@@ -176,7 +175,7 @@ int buffer_load_file(buffer_t* buf, const char* filename) {
     buffer_ensure_capacity(buf, line_idx + 1);
     size_t remaining = p - line_start;
     if (remaining > 0 || line_idx == 0) {
-        buf->text.lines[line_idx++] = strndup(line_start, remaining + 1);
+        buf->text.lines[line_idx++] = qstr_ndup(line_start, remaining);
     }
     buf->text.line_count = line_idx;
 
@@ -296,7 +295,7 @@ void buffer_split_line(buffer_t* buf, size_t line, size_t col) {
     size_t len = strlen(ln);
     if (col > len) col = len;
 
-    char* right_part = strdup(ln + col);
+    char* right_part = qstr_dup(ln + col);
     ln[col] = '\0';
 
     memmove(buf->text.lines + line + 2, buf->text.lines + line + 1,

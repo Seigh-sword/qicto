@@ -102,14 +102,18 @@ void renderer_render_statusbar(struct ncplane* plane, editor_t* ed, int x, int y
             ncplane_set_fg_rgb8(plane, 0xe6, 0xe6, 0xe6);
         }
 
-        ncplane_printf(plane, " [%zux%zu]", buf->text.line_count,
-                       buf->text.line_count > 0 ? strlen(buf->text.lines[0]) : 0);
+        char dims[64];
+        snprintf(dims, sizeof(dims), " [%lux%lu]", (unsigned long)buf->text.line_count,
+                 (unsigned long)(buf->text.line_count > 0 ? strlen(buf->text.lines[0]) : 0));
+        ncplane_putstr(plane, dims);
     }
 
-    if (ed->statusmsg[0]) {
+    if (ed->statusmsg[0] && editor_status_active(ed)) {
         ncplane_cursor_move_yx(plane, y, x + width - 30);
         ncplane_set_fg_rgb8(plane, 0x68, 0x70, 0x76);
-        ncplane_printf(plane, "%.30s", ed->statusmsg);
+        char msgbuf[64];
+        snprintf(msgbuf, sizeof(msgbuf), "%.30s", ed->statusmsg);
+        ncplane_putstr(plane, msgbuf);
     }
 
     ncplane_set_fg_rgb8(plane, 0xdf, 0xdf, 0xdf);

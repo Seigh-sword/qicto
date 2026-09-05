@@ -196,6 +196,8 @@ typedef struct qicto_editor_t {
     time_t statusmsg_time;
     char cmd_buffer[QICTO_MAX_CMD_LEN];
     size_t cmd_cursor;
+    bool quit_requested;
+    bool force_quit;
 } editor_t;
 
 typedef struct {

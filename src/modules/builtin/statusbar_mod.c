@@ -38,8 +38,10 @@ static void statusbar_on_render(editor_t* ed, void* ncp) {
     }
 
     if (buf) {
-        ncplane_printf(plane, " [%zux%zu]", buf->text.line_count,
-                       buf->text.line_count > 0 ? strlen(buf->text.lines[0]) : 0);
+        char dims[64];
+        snprintf(dims, sizeof(dims), " [%lux%lu]", (unsigned long)buf->text.line_count,
+                 (unsigned long)(buf->text.line_count > 0 ? strlen(buf->text.lines[0]) : 0));
+        ncplane_putstr(plane, dims);
     }
 
     ncplane_cursor_move_yx(plane, 0, cols - 20);

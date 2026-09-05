@@ -31,14 +31,15 @@ editor_t* editor_create(void) {
     ed->buffers = NULL;
     ed->commands = commands_create();
 
-    commands_register(ed->commands, "quit", cmd_quit, "Quit the editor");
-    commands_register(ed->commands, "q", cmd_quit, "Quit the editor");
-    commands_register(ed->commands, "write", cmd_write, "Save current buffer");
+    commands_register(ed->commands, "quit", cmd_quit, "Quit the editor (:quit! to force)");
+    commands_register(ed->commands, "q", cmd_quit, "Quit the editor (q! to force)");
+    commands_register(ed->commands, "write", cmd_write, "Save current buffer (:w [path])");
     commands_register(ed->commands, "w", cmd_write, "Save current buffer");
-    commands_register(ed->commands, "edit", cmd_edit, "Open a file");
+    commands_register(ed->commands, "edit", cmd_edit, "Open a file (:e <path>)");
     commands_register(ed->commands, "e", cmd_edit, "Open a file");
-    commands_register(ed->commands, "buffer", cmd_buffer, "List or switch buffers");
+    commands_register(ed->commands, "buffer", cmd_buffer, "List or switch buffers (:buffer [N])");
     commands_register(ed->commands, "ls", cmd_buffer, "List buffers");
+    commands_register(ed->commands, "b", cmd_buffer, "Switch to buffer by id");
     commands_register(ed->commands, "help", cmd_help, "Show help");
     commands_register(ed->commands, "version", cmd_version, "Show version");
     commands_register(ed->commands, "lsmods", cmd_lsmods, "List loaded modules");
@@ -151,8 +152,12 @@ void editor_close_buffer(editor_t* ed, buffer_t* buf) {
 }
 
 void editor_quit(editor_t* ed) {
-    (void)ed;
-    exit(0);
+    if (!ed) return;
+    if (ed->current_buffer && ed->current_buffer->dirty && !ed->force_quit) {
+        editor_set_status(ed, "unsaved changes, use :q! to force quit");
+        return;
+    }
+    ed->quit_requested = true;
 }
 
 void editor_redraw(editor_t* ed) {
@@ -170,6 +175,18 @@ void editor_set_status(editor_t* ed, const char* fmt, ...) {
     vsnprintf(ed->statusmsg, sizeof(ed->statusmsg), fmt, ap);
     va_end(ap);
     ed->statusmsg_time = time(NULL);
+}
+
+bool editor_status_active(editor_t* ed) {
+    if (!ed || !ed->statusmsg[0]) return false;
+    /* default 5-second TTL */
+    return (time(NULL) - ed->statusmsg_time) < 5;
+}
+
+void editor_clear_status(editor_t* ed) {
+    if (!ed) return;
+    ed->statusmsg[0] = '\0';
+    ed->statusmsg_time = 0;
 }
 
 config_t* editor_config(editor_t* ed) {

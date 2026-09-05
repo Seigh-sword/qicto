@@ -2,10 +2,10 @@
 #include "editor.h"
 #include "buffer.h"
 #include "module.h"
+#include "utils/strings.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <string.h>
 
 command_registry_t* commands_create(void) {
     command_registry_t* cmds = calloc(1, sizeof(command_registry_t));
@@ -37,17 +37,30 @@ int commands_register(command_registry_t* cmds, const char* name, command_fn fn,
 
 command_entry_t* commands_find(command_registry_t* cmds, const char* name) {
     if (!cmds || !name) return NULL;
+    /* exact match first */
     for (size_t i = 0; i < cmds->count; i++) {
         if (strcmp(cmds->entries[i].name, name) == 0) {
             return &cmds->entries[i];
         }
     }
+    /* prefix match: entry's name starts with the user's input.
+     * skip if user input equals an entry name (already handled above) and
+     * require the entry to be unambiguously longer than the input. */
+    command_entry_t* prefix_match = NULL;
+    size_t input_len = strlen(name);
+    if (input_len == 0) return NULL;
     for (size_t i = 0; i < cmds->count; i++) {
-        if (strncmp(cmds->entries[i].name, name, strlen(cmds->entries[i].name)) == 0) {
-            return &cmds->entries[i];
+        size_t entry_len = strlen(cmds->entries[i].name);
+        if (entry_len > input_len &&
+            strncmp(cmds->entries[i].name, name, input_len) == 0) {
+            if (prefix_match) {
+                /* ambiguous — multiple matches, refuse to guess */
+                return NULL;
+            }
+            prefix_match = &cmds->entries[i];
         }
     }
-    return NULL;
+    return prefix_match;
 }
 
 qicto_cmd_result_t commands_execute(command_registry_t* cmds, editor_t* ed, const char* input, char** out) {
@@ -68,22 +81,30 @@ qicto_cmd_result_t commands_execute(command_registry_t* cmds, editor_t* ed, cons
     return entry->fn(ed, args, out);
 }
 
+/* Returns a freshly-allocated array of malloc'd C strings (one per
+ * command). The caller owns both the array and the strings and must
+ * free each entry plus the array itself. */
 void commands_list(command_registry_t* cmds, char*** names, size_t* count) {
     if (!cmds || !names || !count) return;
     *count = cmds->count;
-    if (cmds->count == 0) {
-        *names = NULL;
+    *names = NULL;
+    if (cmds->count == 0) return;
+    *names = calloc(cmds->count, sizeof(char*));
+    if (!*names) {
+        *count = 0;
         return;
     }
-    *names = malloc(cmds->count * sizeof(char*));
     for (size_t i = 0; i < cmds->count; i++) {
-        (*names)[i] = strdup(cmds->entries[i].name);
+        (*names)[i] = qstr_dup(cmds->entries[i].name);
     }
 }
 
 qicto_cmd_result_t cmd_quit(editor_t* ed, const char* args, char** out) {
-    (void)args;
     (void)out;
+    if (!ed) return QICTO_CMD_ERROR;
+    if (args && args[0] == '!') {
+        ed->force_quit = true;
+    }
     editor_quit(ed);
     return QICTO_CMD_SUCCESS;
 }
@@ -126,9 +147,11 @@ qicto_cmd_result_t cmd_buffer(editor_t* ed, const char* args, char** out) {
         char tmp[1024] = {0};
         buffer_t* b = ed->buffers;
         while (b) {
+            char marker = ' ';
+            if (b == ed->current_buffer) marker = '%';
             char line[256];
-            snprintf(line, sizeof(line), "  [%d] %s%s\n",
-                     b->id, buffer_display_name(b),
+            snprintf(line, sizeof(line), " %c[%d] %s%s\n",
+                     marker, b->id, buffer_display_name(b),
                      b->dirty ? " *" : "");
             strncat(tmp, line, sizeof(tmp) - strlen(tmp) - 1);
             b = b->next;
@@ -137,28 +160,67 @@ qicto_cmd_result_t cmd_buffer(editor_t* ed, const char* args, char** out) {
         return QICTO_CMD_SUCCESS;
     }
 
-    return QICTO_CMD_UNKNOWN;
+    /* :buffer N — switch to buffer by id */
+    char* endp = NULL;
+    long target = strtol(args, &endp, 10);
+    if (endp == args || target < 0) {
+        if (out) *out = strdup("usage: :buffer <id>");
+        return QICTO_CMD_ERROR;
+    }
+    buffer_t* b = ed->buffers;
+    while (b) {
+        if ((long)b->id == target) {
+            ed->current_buffer = b;
+            if (out) {
+                char tmp[256];
+                snprintf(tmp, sizeof(tmp), "switched to buffer %ld: %s",
+                         target, buffer_display_name(b));
+                *out = strdup(tmp);
+            }
+            return QICTO_CMD_SUCCESS;
+        }
+        b = b->next;
+    }
+    if (out) {
+        char tmp[128];
+        snprintf(tmp, sizeof(tmp), "no buffer with id %ld", target);
+        *out = strdup(tmp);
+    }
+    return QICTO_CMD_ERROR;
 }
 
 qicto_cmd_result_t cmd_help(editor_t* ed, const char* args, char** out) {
     if (!ed || !ed->commands) return QICTO_CMD_ERROR;
+    (void)args;
 
     char** names = NULL;
     size_t count = 0;
     commands_list(ed->commands, &names, &count);
 
     if (out) {
-        char* buf = malloc(4096);
+        size_t cap = 4096;
+        char* buf = malloc(cap);
         if (buf) {
+            size_t off = 0;
             buf[0] = '\0';
-            for (size_t i = 0; i < count && i < 100; i++) {
-                strncat(buf, names[i], 255);
-                strncat(buf, "\n", 1);
+            for (size_t i = 0; i < count; i++) {
+                /* look up the help string for this command */
+                command_entry_t* entry = commands_find(ed->commands, names[i]);
+                const char* help = (entry && entry->help) ? entry->help : "";
+                int written = snprintf(buf + off, cap - off, "  %-12s  %s\n",
+                                       names[i], help);
+                if (written < 0 || (size_t)written >= cap - off) break;
+                off += (size_t)written;
             }
             *out = buf;
         }
     }
-    free(names);
+    /* commands_list returns a malloc'd char**; the strings are strdup'd.
+     * We must free both. */
+    if (names) {
+        for (size_t i = 0; i < count; i++) free(names[i]);
+        free(names);
+    }
     return QICTO_CMD_SUCCESS;
 }
 

@@ -125,13 +125,14 @@ int main(int argc, char* argv[]) {
     editor_redraw(ed);
     tui_render(tui, ed);
 
-    while (1) {
+    while (!ed->quit_requested) {
         qkey_t key = tui_read_key(tui);
         if (key == QICTO_KEY_NONE) continue;
 
         if (key == QICTO_KEY_ESC) {
             if (ed->mode == QICTO_MODE_NORMAL) {
                 editor_set_status(ed, "");
+                tui_render(tui, ed);
             } else {
                 tui_handle_key(tui, ed, key);
             }

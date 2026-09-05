@@ -103,9 +103,11 @@ int tui_render(tui_state_t* tui, editor_t* ed) {
         int screen_y = i;
 
         if (line_num_width > 0) {
+            char linestr[32];
+            snprintf(linestr, sizeof(linestr), "%*lu ", line_num_width - 2, (unsigned long)(line_idx + 1));
             ncplane_cursor_move_yx(tui->stdplane, screen_y, 0);
             ncplane_set_styles(tui->stdplane, NCSTYLE_UNDERLINE);
-            ncplane_printf(tui->stdplane, "%*zu ", line_num_width - 2, line_idx + 1);
+            ncplane_putstr(tui->stdplane, linestr);
             ncplane_set_styles(tui->stdplane, NCSTYLE_NONE);
         }
 

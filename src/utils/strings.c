@@ -122,14 +122,14 @@ int qstr_ends_with(const char* s, const char* suffix) {
 size_t qstr_display_width(const char* s) {
     if (!s) return 0;
     utf8proc_uint8_t* dst = NULL;
-    utf8proc_int32_t len = utf8proc_map((const utf8proc_uint8_t*)s, 0, &dst,
+    utf8proc_ssize_t len = utf8proc_map((const utf8proc_uint8_t*)s, (utf8proc_ssize_t)strlen(s), &dst,
         (utf8proc_option_t)UTF8PROC_STRIPCC);
     if (len < 0 || !dst) return strlen(s);
 
     size_t width = 0;
-    for (utf8proc_int32_t i = 0; i < len; i++) {
-        utf8proc_int32_t w = utf8proc_charwidth(dst[i]);
-        width += (w >= 0) ? w : 0;
+    for (utf8proc_ssize_t i = 0; i < len; i++) {
+        int w = utf8proc_charwidth(dst[i]);
+        width += (w >= 0) ? (size_t)w : 0;
     }
     free(dst);
     return width;
