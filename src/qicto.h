@@ -196,6 +196,14 @@ typedef struct qicto_editor_t {
     time_t statusmsg_time;
     char cmd_buffer[QICTO_MAX_CMD_LEN];
     size_t cmd_cursor;
+    size_t top_line;     /* first visible line in the buffer */
+    size_t col_offset;   /* first visible column (for horizontal scroll) */
+    int scroll_offset;   /* min lines of context to keep above/below cursor */
+    /* last command for the '.' repeat, plus motion prefix state for gg/dd/etc. */
+    char last_cmd[16];
+    size_t last_cmd_len;
+    char pending[8];     /* buffered keys for multi-key motions like gg */
+    size_t pending_len;
     bool quit_requested;
     bool force_quit;
 } editor_t;

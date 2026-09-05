@@ -51,6 +51,15 @@ editor_t* editor_create(void) {
 
     ed->statusmsg[0] = '\0';
     ed->statusmsg_time = 0;
+    ed->top_line = 0;
+    ed->col_offset = 0;
+    ed->scroll_offset = 5;
+    ed->last_cmd[0] = '\0';
+    ed->last_cmd_len = 0;
+    ed->pending[0] = '\0';
+    ed->pending_len = 0;
+    ed->quit_requested = false;
+    ed->force_quit = false;
 
     return ed;
 }
@@ -191,4 +200,34 @@ void editor_clear_status(editor_t* ed) {
 
 config_t* editor_config(editor_t* ed) {
     return ed ? ed->config : NULL;
+}
+
+/* Adjust top_line / col_offset so the cursor is visible in a viewport of
+ * viewport_height rows and viewport_width columns, keeping at least
+ * scroll_offset rows of context above and below when possible. */
+void editor_scroll_to_cursor(editor_t* ed, int viewport_height, int viewport_width) {
+    if (!ed || !ed->current_buffer) return;
+    if (viewport_height <= 0) viewport_height = 24;
+    if (viewport_width <= 0) viewport_width = 80;
+    buffer_t* buf = ed->current_buffer;
+    size_t cur = buf->cursor.cursor_line;
+    int so = ed->scroll_offset;
+    if (so < 0) so = 0;
+    if ((int)cur < (int)ed->top_line + so) {
+        if (cur >= (size_t)so) ed->top_line = cur - so;
+        else ed->top_line = 0;
+    } else if ((int)cur >= (int)ed->top_line + viewport_height - so) {
+        size_t new_top = (size_t)cur + (size_t)so + 1;
+        if (new_top >= (size_t)viewport_height) ed->top_line = new_top - (size_t)viewport_height;
+        else ed->top_line = 0;
+    }
+    /* horizontal: keep cursor within ~5 cols of left edge and ~5 cols
+     * from the right edge. */
+    size_t cw = buf->cursor.cursor_col;
+    if ((int)cw < (int)ed->col_offset + 5) {
+        ed->col_offset = (cw >= 5) ? cw - 5 : 0;
+    } else if ((int)cw >= (int)ed->col_offset + viewport_width - 5) {
+        ed->col_offset = (size_t)cw + 5 >= (size_t)viewport_width
+            ? cw + 5 - viewport_width : 0;
+    }
 }

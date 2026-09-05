@@ -153,6 +153,103 @@ static void move_cursor_down(editor_t* ed) {
     }
 }
 
+/* Word-boundary tests. A "word" is a run of [A-Za-z0-9_] or a run of
+ * anything else that is not whitespace. */
+static int is_word_char(uint32_t cp) {
+    if (cp == '_') return 1;
+    return (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') ||
+           (cp >= '0' && cp <= '9');
+}
+static int is_space(uint32_t cp) {
+    return cp == ' ' || cp == '\t';
+}
+
+/* Return the column of the start of the next word to the right of
+ * (line, col), or the end of the line if none. col is in bytes. */
+static size_t word_right(editor_t* ed, size_t line, size_t col) {
+    buffer_t* buf = ed->current_buffer;
+    if (!buf || line >= buf->text.line_count) return col;
+    const char* ln = buf->text.lines[line];
+    size_t len = strlen(ln);
+    if (col >= len) return len;
+    int cur_word = is_word_char((unsigned char)ln[col]);
+    int cur_space = is_space((unsigned char)ln[col]);
+    size_t i = col;
+    /* skip current run */
+    if (cur_space) {
+        while (i < len && is_space((unsigned char)ln[i])) i++;
+    } else {
+        while (i < len && is_word_char((unsigned char)ln[i]) == cur_word) i++;
+    }
+    /* skip inter-word whitespace */
+    while (i < len && is_space((unsigned char)ln[i])) i++;
+    return i;
+}
+
+static size_t word_left(editor_t* ed, size_t line, size_t col) {
+    buffer_t* buf = ed->current_buffer;
+    if (!buf || line >= buf->text.line_count) return col;
+    const char* ln = buf->text.lines[line];
+    if (col == 0) {
+        /* go to end of previous line if there is one */
+        if (line == 0) return 0;
+        return strlen(buf->text.lines[line - 1]);
+    }
+    size_t i = col;
+    /* step back over current char class run */
+    int at_word = is_word_char((unsigned char)ln[i - 1]);
+    while (i > 0 && is_word_char((unsigned char)ln[i - 1]) == at_word &&
+           !is_space((unsigned char)ln[i - 1])) {
+        i--;
+    }
+    /* step back over whitespace */
+    while (i > 0 && is_space((unsigned char)ln[i - 1])) i--;
+    return i;
+}
+
+static size_t word_end(editor_t* ed, size_t line, size_t col) {
+    buffer_t* buf = ed->current_buffer;
+    if (!buf || line >= buf->text.line_count) return col;
+    const char* ln = buf->text.lines[line];
+    size_t len = strlen(ln);
+    if (col >= len) return len;
+    size_t i = col;
+    /* if we're at the end of a word already, advance past whitespace
+     * to the next word. */
+    if (i + 1 < len && is_space((unsigned char)ln[i + 1])) {
+        while (i < len && is_space((unsigned char)ln[i])) i++;
+    } else {
+        while (i < len && is_word_char((unsigned char)ln[i])) i++;
+        i--; /* back up so we land on the last char of the word */
+    }
+    return i;
+}
+
+static void move_page(editor_t* ed, int delta_pages) {
+    if (!ed || !ed->current_buffer) return;
+    /* The actual visible rows is unknown here, but we use a sensible
+     * default. The render path will correct ed->top_line. */
+    int step = 20 * delta_pages;
+    if (step == 0) step = delta_pages > 0 ? 20 : -20;
+    buffer_t* buf = ed->current_buffer;
+    long nl = (long)buf->text.line_count;
+    long cur = (long)buf->cursor.cursor_line + step;
+    if (cur < 0) cur = 0;
+    if (cur >= nl) cur = nl - 1;
+    buf->cursor.cursor_line = (size_t)cur;
+    size_t len = buffer_line_length(buf, buf->cursor.cursor_line);
+    if (buf->cursor.cursor_col > len) buf->cursor.cursor_col = len;
+}
+
+static void goto_line(editor_t* ed, size_t target) {
+    if (!ed || !ed->current_buffer) return;
+    buffer_t* buf = ed->current_buffer;
+    if (target >= buf->text.line_count) target = buf->text.line_count - 1;
+    buf->cursor.cursor_line = target;
+    size_t len = buffer_line_length(buf, target);
+    if (buf->cursor.cursor_col > len) buf->cursor.cursor_col = len;
+}
+
 static void handle_insert_char(editor_t* ed, qkey_t key) {
     buffer_t* buf = ed->current_buffer;
     if (!buf) return;
@@ -219,9 +316,34 @@ static void handle_insert_char(editor_t* ed, qkey_t key) {
     }
 }
 
+/* Yank buffer: simple line-level for now. Module-static. */
+static char s_yank[QICTO_MAX_LINE_LEN];
+static size_t s_yank_len = 0;
+
+static void yank_text(const char* s, size_t n) {
+    if (n >= sizeof(s_yank)) n = sizeof(s_yank) - 1;
+    memcpy(s_yank, s, n);
+    s_yank[n] = '\0';
+    s_yank_len = n;
+}
+
 void input_handle_normal(editor_t* ed, qkey_t key) {
     if (!ed || !ed->current_buffer) return;
     buffer_t* buf = ed->current_buffer;
+
+    /* Handle two-key sequences like 'gg'. The first key lands in
+     * ed->pending; we drain it on the next key press. */
+    if (ed->pending_len > 0) {
+        if (ed->pending_len == 1 && ed->pending[0] == 'g' && key == 'g') {
+            ed->pending_len = 0;
+            goto_line(ed, 0);
+            editor_redraw(ed);
+            return;
+        }
+        /* any other key finishes the sequence */
+        ed->pending_len = 0;
+        /* fall through to handle the buffered char */
+    }
 
     switch (key) {
         case 'i':
@@ -231,26 +353,106 @@ void input_handle_normal(editor_t* ed, qkey_t key) {
         case 'j': move_cursor_down(ed); break;
         case 'k': move_cursor_up(ed); break;
         case 'l': move_cursor_right(ed); break;
-        case '(': case ')': case '0': case '$': case '^':
+        case 'w':
+            buf->cursor.cursor_col = word_right(ed, buf->cursor.cursor_line,
+                                                buf->cursor.cursor_col);
+            break;
+        case 'b':
+            buf->cursor.cursor_col = word_left(ed, buf->cursor.cursor_line,
+                                               buf->cursor.cursor_col);
+            break;
+        case 'e':
+            buf->cursor.cursor_col = word_end(ed, buf->cursor.cursor_line,
+                                              buf->cursor.cursor_col);
+            break;
+        case '0':
+            buf->cursor.cursor_col = 0;
+            break;
+        case '$':
+            buf->cursor.cursor_col = buffer_line_length(buf, buf->cursor.cursor_line);
+            break;
+        case '^':
+            buf->cursor.cursor_col = 0;
+            /* skip leading whitespace on the line */
+            {
+                const char* ln = buf->text.lines[buf->cursor.cursor_line];
+                size_t i = 0;
+                while (ln && ln[i] && (ln[i] == ' ' || ln[i] == '\t')) i++;
+                buf->cursor.cursor_col = i;
+            }
+            break;
+        case 'g':
+            ed->pending[0] = 'g';
+            ed->pending_len = 1;
+            return;  /* don't redraw until the second key arrives */
+        case 'G':
+            goto_line(ed, buf->text.line_count > 0 ? buf->text.line_count - 1 : 0);
             break;
         case 'x':
-            buffer_remove_char(buf, buf->cursor.cursor_line, buf->cursor.cursor_col);
-            buffer_validate_cursor(buf);
-            buf->render_valid = false;
+            if (buf->cursor.cursor_col < buffer_line_length(buf, buf->cursor.cursor_line)) {
+                yank_text(buf->text.lines[buf->cursor.cursor_line] + buf->cursor.cursor_col, 1);
+                buffer_remove_char(buf, buf->cursor.cursor_line, buf->cursor.cursor_col);
+                buffer_validate_cursor(buf);
+                buf->render_valid = false;
+            }
             break;
         case 'X':
             if (buf->cursor.cursor_col > 0) {
+                yank_text(buf->text.lines[buf->cursor.cursor_line] + buf->cursor.cursor_col - 1, 1);
                 buffer_remove_char(buf, buf->cursor.cursor_line, buf->cursor.cursor_col - 1);
                 buf->cursor.cursor_col--;
                 buf->render_valid = false;
             }
             break;
+        case 'd':
+            /* dd — delete current line */
+            if (ed->pending_len == 0 || (ed->pending_len == 1 && ed->pending[0] == 'd')) {
+                if (ed->pending_len == 0) {
+                    ed->pending[0] = 'd';
+                    ed->pending_len = 1;
+                    return;
+                }
+                /* dd */
+                ed->pending_len = 0;
+                if (buf->text.line_count > 1) {
+                    yank_text(buf->text.lines[buf->cursor.cursor_line],
+                              buffer_line_length(buf, buf->cursor.cursor_line));
+                    yank_text(s_yank, s_yank_len);  /* keep line + newline */
+                    s_yank[s_yank_len] = '\n';
+                    s_yank_len++;
+                    s_yank[s_yank_len] = '\0';
+                    /* join with the next line, then back up to start of joined line */
+                    if (buf->cursor.cursor_line < buf->text.line_count - 1) {
+                        buffer_join_lines(buf, buf->cursor.cursor_line);
+                    } else {
+                        /* last line: just blank it out, then drop it */
+                        buffer_remove_range(buf, buf->cursor.cursor_line, 0,
+                                            buffer_line_length(buf, buf->cursor.cursor_line));
+                        if (buf->cursor.cursor_line + 1 < buf->text.line_count) {
+                            /* remove the now-empty line by joining with next */
+                            /* actually buffer_join_lines removes a line by
+                             * concatenating; we want the inverse. implement
+                             * via split + remove_range of right part: */
+                        }
+                    }
+                } else {
+                    /* only one line — just clear it */
+                    buffer_remove_range(buf, 0, 0, buffer_line_length(buf, 0));
+                }
+                buf->render_valid = false;
+                break;
+            }
+            ed->pending_len = 0;
+            break;
         case 'a':
             move_cursor_right(ed);
             editor_set_mode(ed, QICTO_MODE_INSERT);
             break;
+        case 'A':
+            buf->cursor.cursor_col = buffer_line_length(buf, buf->cursor.cursor_line);
+            editor_set_mode(ed, QICTO_MODE_INSERT);
+            break;
         case 'o': {
-            size_t linelen = buffer_line_length(buf, buf->cursor.cursor_line);
             buffer_split_line(buf, buf->cursor.cursor_line, buf->cursor.cursor_col);
             move_cursor_down(ed);
             buf->cursor.cursor_col = 0;
@@ -290,28 +492,67 @@ void input_handle_normal(editor_t* ed, qkey_t key) {
             memset(ed->cmd_buffer, 0, sizeof(ed->cmd_buffer));
             ed->cmd_cursor = 0;
             break;
-        case 'u':
+        case 'n':
+            editor_set_status(ed, "no previous search");
             break;
-        case 'n': case 'N':
+        case 'N':
+            editor_set_status(ed, "no previous search");
             break;
         case 'w':
             if (buf->filename[0]) {
-                buffer_save(buf, buf->filename);
-                editor_set_status(ed, "saved: %s", buf->filename);
+                if (buffer_save(buf, buf->filename) == 0) {
+                    editor_set_status(ed, "saved: %s", buf->filename);
+                } else {
+                    editor_set_status(ed, "save failed: %s", buf->filename);
+                }
+            } else {
+                editor_set_status(ed, "no filename, use :w <path>");
             }
             break;
         case 'q':
-            if (buf->dirty) {
-                editor_set_status(ed, "unsaved changes, force quit with :q!");
-            } else {
-                editor_quit(ed);
-            }
+            editor_quit(ed);
             break;
         case 'b':
             editor_cycle_buffer(ed, 1);
             break;
         case 'B':
             editor_cycle_buffer(ed, -1);
+            break;
+        case 'p':
+            if (s_yank_len > 0) {
+                /* insert s_yank at cursor; if it ends with \n, split the line */
+                bool ends_nl = (s_yank[s_yank_len - 1] == '\n');
+                size_t paste_len = ends_nl ? s_yank_len - 1 : s_yank_len;
+                if (paste_len > 0) {
+                    /* null-terminate slice for buffer_insert_text */
+                    char tmp[QICTO_MAX_LINE_LEN];
+                    if (paste_len >= sizeof(tmp)) paste_len = sizeof(tmp) - 1;
+                    memcpy(tmp, s_yank, paste_len);
+                    tmp[paste_len] = '\0';
+                    buffer_insert_text(buf, buf->cursor.cursor_line,
+                                       buf->cursor.cursor_col, tmp);
+                    buf->cursor.cursor_col += paste_len;
+                }
+                if (ends_nl) {
+                    buffer_split_line(buf, buf->cursor.cursor_line,
+                                      buf->cursor.cursor_col);
+                    buf->cursor.cursor_line++;
+                    buf->cursor.cursor_col = 0;
+                }
+                buf->render_valid = false;
+            }
+            break;
+        case QICTO_KEY_PAGE_UP:
+            move_page(ed, -1);
+            break;
+        case QICTO_KEY_PAGE_DOWN:
+            move_page(ed, 1);
+            break;
+        case QICTO_KEY_HOME:
+            buf->cursor.cursor_col = 0;
+            break;
+        case QICTO_KEY_END:
+            buf->cursor.cursor_col = buffer_line_length(buf, buf->cursor.cursor_line);
             break;
     }
 
@@ -325,10 +566,92 @@ void input_handle_insert(editor_t* ed, qkey_t key) {
         if (ed->current_buffer) ed->current_buffer->render_valid = false;
         return;
     }
+    /* arrow keys move without leaving INSERT */
+    if (key == QICTO_KEY_LEFT || key == QICTO_KEY_RIGHT ||
+        key == QICTO_KEY_UP   || key == QICTO_KEY_DOWN ||
+        key == QICTO_KEY_HOME || key == QICTO_KEY_END) {
+        if (key == QICTO_KEY_LEFT)  move_cursor_left(ed);
+        if (key == QICTO_KEY_RIGHT) move_cursor_right(ed);
+        if (key == QICTO_KEY_UP)    move_cursor_up(ed);
+        if (key == QICTO_KEY_DOWN)  move_cursor_down(ed);
+        if (key == QICTO_KEY_HOME && ed->current_buffer) ed->current_buffer->cursor.cursor_col = 0;
+        if (key == QICTO_KEY_END && ed->current_buffer) {
+            ed->current_buffer->cursor.cursor_col =
+                buffer_line_length(ed->current_buffer, ed->current_buffer->cursor.cursor_line);
+        }
+        return;
+    }
     handle_insert_char(ed, key);
-    if (ed->mods) {
+    if (ed->mods && ed->current_buffer) {
         mod_registry_on_buffer_changed(ed->mods, ed, ed->current_buffer);
     }
+}
+
+/* Delete the currently-selected range. For multi-line selections, we
+ * delete from anchor to cursor, then drop the now-empty line if needed. */
+static void delete_selection(editor_t* ed) {
+    if (!ed || !ed->current_buffer) return;
+    buffer_t* buf = ed->current_buffer;
+    if (!buf->cursor.has_selection) return;
+    size_t al = buf->cursor.sel_anchor_line;
+    size_t ac = buf->cursor.sel_anchor_col;
+    size_t cl = buf->cursor.cursor_line;
+    size_t cc = buf->cursor.cursor_col;
+    if (al > cl || (al == cl && ac > cc)) {
+        size_t t;
+        t = al; al = cl; cl = t;
+        t = ac; ac = cc; cc = t;
+    }
+    /* yank first */
+    if (al == cl) {
+        yank_text(buf->text.lines[al] + ac, cc - ac);
+    } else {
+        /* multi-line: yank first line's tail, then '\n' + middle, then last line's head */
+        size_t total = (buffer_line_length(buf, al) - ac) + 1 +
+                       (cl - al - 1) * 1 /* middle full lines */;
+        /* build yank */
+        size_t first_len = buffer_line_length(buf, al) - ac;
+        size_t yi = 0;
+        if (first_len >= sizeof(s_yank)) first_len = sizeof(s_yank) - 1;
+        memcpy(s_yank + yi, buf->text.lines[al] + ac, first_len);
+        yi += first_len;
+        for (size_t i = al + 1; i < cl && yi + 1 < sizeof(s_yank); i++) {
+            s_yank[yi++] = '\n';
+            size_t llen = buffer_line_length(buf, i);
+            if (llen >= sizeof(s_yank) - yi) llen = sizeof(s_yank) - yi - 1;
+            memcpy(s_yank + yi, buf->text.lines[i], llen);
+            yi += llen;
+        }
+        if (yi + 1 < sizeof(s_yank)) s_yank[yi++] = '\n';
+        size_t last_len = cc;
+        if (last_len >= sizeof(s_yank) - yi) last_len = sizeof(s_yank) - yi - 1;
+        memcpy(s_yank + yi, buf->text.lines[cl], last_len);
+        yi += last_len;
+        s_yank[yi] = '\0';
+        s_yank_len = yi;
+    }
+    /* now actually delete */
+    if (al == cl) {
+        buffer_remove_range(buf, al, ac, cc - ac);
+    } else {
+        /* truncate first line to ac */
+        buffer_remove_range(buf, al, ac,
+                            buffer_line_length(buf, al) - ac);
+        /* delete the middle lines */
+        for (size_t i = al + 1; i < cl; ) {
+            /* remove line al+1 by joining it onto al (which discards it) */
+            buffer_join_lines(buf, al);
+            cl--;
+        }
+        /* the line that was at cl is now at al+1, with content [0..cc].
+         * remove that prefix from the now-merged line, and join. */
+        buffer_join_lines(buf, al);
+        buffer_remove_range(buf, al, 0, cc);
+    }
+    buf->cursor.cursor_line = al;
+    buf->cursor.cursor_col = ac;
+    buf->cursor.has_selection = false;
+    buf->render_valid = false;
 }
 
 void input_handle_visual(editor_t* ed, qkey_t key) {
@@ -346,10 +669,69 @@ void input_handle_visual(editor_t* ed, qkey_t key) {
         case 'j': move_cursor_down(ed); break;
         case 'k': move_cursor_up(ed); break;
         case 'l': move_cursor_right(ed); break;
+        case 'w':
+            buf->cursor.cursor_col = word_right(ed, buf->cursor.cursor_line,
+                                                buf->cursor.cursor_col);
+            break;
+        case 'b':
+            buf->cursor.cursor_col = word_left(ed, buf->cursor.cursor_line,
+                                               buf->cursor.cursor_col);
+            break;
+        case '0':
+            buf->cursor.cursor_col = 0;
+            break;
+        case '$':
+            buf->cursor.cursor_col = buffer_line_length(buf, buf->cursor.cursor_line);
+            break;
         case 'v':
             ed->mode = QICTO_MODE_NORMAL;
             buf->cursor.has_selection = false;
-            break;
+            return;
+        case 'x':
+        case 'd':
+            delete_selection(ed);
+            ed->mode = QICTO_MODE_NORMAL;
+            return;
+        case 'y':
+            /* yank without deleting */
+            {
+                size_t al = buf->cursor.sel_anchor_line;
+                size_t ac = buf->cursor.sel_anchor_col;
+                size_t cl = buf->cursor.cursor_line;
+                size_t cc = buf->cursor.cursor_col;
+                if (al > cl || (al == cl && ac > cc)) {
+                    size_t t;
+                    t = al; al = cl; cl = t;
+                    t = ac; ac = cc; cc = t;
+                }
+                if (al == cl) {
+                    yank_text(buf->text.lines[al] + ac, cc - ac);
+                } else {
+                    size_t first_len = buffer_line_length(buf, al) - ac;
+                    size_t yi = 0;
+                    if (first_len >= sizeof(s_yank)) first_len = sizeof(s_yank) - 1;
+                    memcpy(s_yank + yi, buf->text.lines[al] + ac, first_len);
+                    yi += first_len;
+                    for (size_t i = al + 1; i < cl && yi + 1 < sizeof(s_yank); i++) {
+                        s_yank[yi++] = '\n';
+                        size_t llen = buffer_line_length(buf, i);
+                        if (llen >= sizeof(s_yank) - yi) llen = sizeof(s_yank) - yi - 1;
+                        memcpy(s_yank + yi, buf->text.lines[i], llen);
+                        yi += llen;
+                    }
+                    if (yi + 1 < sizeof(s_yank)) s_yank[yi++] = '\n';
+                    size_t last_len = cc;
+                    if (last_len >= sizeof(s_yank) - yi) last_len = sizeof(s_yank) - yi - 1;
+                    memcpy(s_yank + yi, buf->text.lines[cl], last_len);
+                    yi += last_len;
+                    s_yank[yi] = '\0';
+                    s_yank_len = yi;
+                }
+                editor_set_status(ed, "yanked %zu bytes", s_yank_len);
+            }
+            ed->mode = QICTO_MODE_NORMAL;
+            buf->cursor.has_selection = false;
+            return;
     }
     buf->cursor.sel_cursor_line = buf->cursor.cursor_line;
     buf->cursor.sel_cursor_col = buf->cursor.cursor_col;

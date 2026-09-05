@@ -84,6 +84,7 @@ int tui_render(tui_state_t* tui, editor_t* ed) {
     }
 
     int content_height = tui->height - 2;
+    if (content_height < 1) content_height = 1;
     int line_num_width = 0;
     if (ed->config && ed->config->show_line_numbers) {
         int max_digits = 1;
@@ -92,11 +93,21 @@ int tui_render(tui_state_t* tui, editor_t* ed) {
         line_num_width = max_digits + 2;
     }
 
-    int cursor_screen_y = 0;
-    int cursor_screen_x = 0;
+    /* keep cursor on screen */
+    editor_scroll_to_cursor(ed, content_height, tui->width - line_num_width);
+    /* clamp top_line if buffer shrank (e.g. on close) */
+    if (ed->top_line > 0 && ed->top_line >= buf->text.line_count) {
+        ed->top_line = buf->text.line_count > 0 ? buf->text.line_count - 1 : 0;
+    }
 
-    for (int i = 0; i < content_height && (size_t)i < buf->text.line_count; i++) {
-        size_t line_idx = (size_t)i;
+    int cursor_screen_y = 0;
+    int cursor_screen_x = line_num_width;
+    int content_width = tui->width - line_num_width;
+    if (content_width < 1) content_width = 1;
+
+    for (int i = 0; i < content_height; i++) {
+        size_t line_idx = ed->top_line + (size_t)i;
+        if (line_idx >= buf->text.line_count) break;
         const char* text = buffer_get_line(buf, line_idx);
         if (!text) continue;
 
@@ -104,23 +115,36 @@ int tui_render(tui_state_t* tui, editor_t* ed) {
 
         if (line_num_width > 0) {
             char linestr[32];
-            snprintf(linestr, sizeof(linestr), "%*lu ", line_num_width - 2, (unsigned long)(line_idx + 1));
+            snprintf(linestr, sizeof(linestr), "%*lu ",
+                     line_num_width - 2, (unsigned long)(line_idx + 1));
             ncplane_cursor_move_yx(tui->stdplane, screen_y, 0);
             ncplane_set_styles(tui->stdplane, NCSTYLE_UNDERLINE);
             ncplane_putstr(tui->stdplane, linestr);
             ncplane_set_styles(tui->stdplane, NCSTYLE_NONE);
         }
 
-        int x_offset = line_num_width;
-        ncplane_cursor_move_yx(tui->stdplane, screen_y, x_offset);
+        ncplane_cursor_move_yx(tui->stdplane, screen_y, line_num_width);
 
+        /* selection highlight: draw '~' / invert later — for now we just
+         * draw the line and accept the visual limitation. */
         if (line_idx == buf->cursor.cursor_line) {
             cursor_screen_y = screen_y;
-            cursor_screen_x = x_offset + (int)buf->cursor.cursor_col;
+            cursor_screen_x = line_num_width +
+                (int)buf->cursor.cursor_col - (int)ed->col_offset;
         }
 
         ncplane_set_fg_rgb8(tui->stdplane, 0xc5, 0xc8, 0xc6);
-        ncplane_putstr(tui->stdplane, text);
+        /* Apply col_offset by skipping that many bytes of the line. */
+        size_t col_off = ed->col_offset;
+        size_t linelen = strlen(text);
+        if (col_off >= linelen) {
+            /* past end of line, draw nothing */
+        } else {
+            /* naive: print from col_off onward; will overshoot right edge
+             * if the line is longer than content_width. notcurses will
+             * wrap or clip depending on the plane mode. */
+            ncplane_putstr(tui->stdplane, text + col_off);
+        }
         ncplane_set_fg_rgb8(tui->stdplane, 0xdf, 0xdf, 0xdf);
     }
 
@@ -131,6 +155,10 @@ int tui_render(tui_state_t* tui, editor_t* ed) {
         mod_registry_render_all(ed->mods, ed, (void*)tui->stdplane);
     }
 
+    if (cursor_screen_x < line_num_width) cursor_screen_x = line_num_width;
+    if (cursor_screen_x >= tui->width) cursor_screen_x = tui->width - 1;
+    if (cursor_screen_y < 0) cursor_screen_y = 0;
+    if (cursor_screen_y >= tui->height - 1) cursor_screen_y = tui->height - 2;
     ncplane_cursor_move_yx(tui->stdplane, cursor_screen_y, cursor_screen_x);
     notcurses_render(tui->nc);
     return 0;

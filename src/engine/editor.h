@@ -17,5 +17,6 @@ void editor_set_status(editor_t* ed, const char* fmt, ...);
 void editor_clear_status(editor_t* ed);
 bool editor_status_active(editor_t* ed);
 config_t* editor_config(editor_t* ed);
+void editor_scroll_to_cursor(editor_t* ed, int viewport_height, int viewport_width);
 
 #endif
