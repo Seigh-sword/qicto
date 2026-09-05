@@ -8,6 +8,26 @@
 
 static int s_renderer_initialized = 0;
 
+/* Map a syntax highlight group to an RGB color. The palette is
+ * loosely modeled on One Dark. */
+static void hl_color(uint8_t group, uint8_t* r, uint8_t* g, uint8_t* b) {
+    switch (group) {
+        case 1:  *r = 0xc6; *g = 0x78; *b = 0xdd; break;  /* keyword: purple */
+        case 2:  *r = 0x7f; *g = 0x84; *b = 0x82; break;  /* comment:  gray */
+        case 3:  *r = 0x98; *g = 0xc3; *b = 0x79; break;  /* string:   green */
+        case 4:  *r = 0xd1; *g = 0x9a; *b = 0x66; break;  /* number:   orange */
+        case 5:  *r = 0xe5; *g = 0xc0; *b = 0x7b; break;  /* type:     yellow */
+        case 6:  *r = 0x61; *g = 0xaf; *b = 0xef; break;  /* function: blue */
+        case 7:  *r = 0xe0; *g = 0x6c; *b = 0x75; break;  /* variable: red */
+        case 8:  *r = 0x56; *g = 0x6b; *b = 0x73; break;  /* operator: dark */
+        case 9:  *r = 0xab; *g = 0xb2; *b = 0xbf; break;  /* punct:    light */
+        case 10: *r = 0xe0; *g = 0x6c; *b = 0x75; break;  /* preproc:  red */
+        case 11: *r = 0xd1; *g = 0x9a; *b = 0x66; break;  /* constant: orange */
+        case 12: *r = 0x61; *g = 0xaf; *b = 0xef; break;  /* builtin:  blue */
+        default: *r = 0xc5; *g = 0xc8; *b = 0xc6; break;  /* default:  light gray */
+    }
+}
+
 void renderer_init(struct ncplane* plane) {
     (void)plane;
     s_renderer_initialized = 1;
@@ -51,8 +71,50 @@ void renderer_render_buffer(struct ncplane* plane, buffer_t* buf,
         const char* text = buffer_get_line(buf, line_idx);
         if (!text) continue;
 
-        ncplane_cursor_move_yx(plane, y + i, x_offset);
-        ncplane_putstr(plane, text);
+        /* If the buffer has per-cell render info with syntax groups,
+         * emit one cell at a time so colors can vary. Otherwise fall
+         * back to plain putstr. */
+        if (buf->render_lines && line_idx < buf->render_line_count &&
+            buf->render_lines[line_idx].cells) {
+            qicto_render_line_t* rl = &buf->render_lines[line_idx];
+            ncplane_cursor_move_yx(plane, y + i, x_offset);
+            uint8_t cur_color = 0xFF;
+            char utf8[8] = {0};
+            for (size_t j = 0; j < rl->count; j++) {
+                uint8_t grp = rl->cells[j].syntax_group;
+                if (grp != cur_color) {
+                    uint8_t r, g, b;
+                    hl_color(grp, &r, &g, &b);
+                    ncplane_set_fg_rgb8(plane, r, g, b);
+                    cur_color = grp;
+                }
+                /* encode codepoint to utf-8 */
+                uint32_t cp = rl->cells[j].cp;
+                if (cp < 0x80) {
+                    utf8[0] = (char)cp;
+                    utf8[1] = '\0';
+                } else if (cp < 0x800) {
+                    utf8[0] = (char)(0xC0 | (cp >> 6));
+                    utf8[1] = (char)(0x80 | (cp & 0x3F));
+                    utf8[2] = '\0';
+                } else if (cp < 0x10000) {
+                    utf8[0] = (char)(0xE0 | (cp >> 12));
+                    utf8[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+                    utf8[2] = (char)(0x80 | (cp & 0x3F));
+                    utf8[3] = '\0';
+                } else {
+                    utf8[0] = (char)(0xF0 | (cp >> 18));
+                    utf8[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+                    utf8[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+                    utf8[3] = (char)(0x80 | (cp & 0x3F));
+                    utf8[4] = '\0';
+                }
+                ncplane_putstr(plane, utf8);
+            }
+        } else {
+            ncplane_cursor_move_yx(plane, y + i, x_offset);
+            ncplane_putstr(plane, text);
+        }
     }
 }
 

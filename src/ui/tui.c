@@ -100,52 +100,76 @@ int tui_render(tui_state_t* tui, editor_t* ed) {
         ed->top_line = buf->text.line_count > 0 ? buf->text.line_count - 1 : 0;
     }
 
-    int cursor_screen_y = 0;
-    int cursor_screen_x = line_num_width;
-    int content_width = tui->width - line_num_width;
-    if (content_width < 1) content_width = 1;
-
+    /* Draw line-number gutter. */
     for (int i = 0; i < content_height; i++) {
         size_t line_idx = ed->top_line + (size_t)i;
         if (line_idx >= buf->text.line_count) break;
-        const char* text = buffer_get_line(buf, line_idx);
-        if (!text) continue;
-
-        int screen_y = i;
-
         if (line_num_width > 0) {
             char linestr[32];
             snprintf(linestr, sizeof(linestr), "%*lu ",
                      line_num_width - 2, (unsigned long)(line_idx + 1));
-            ncplane_cursor_move_yx(tui->stdplane, screen_y, 0);
+            ncplane_cursor_move_yx(tui->stdplane, i, 0);
             ncplane_set_styles(tui->stdplane, NCSTYLE_UNDERLINE);
             ncplane_putstr(tui->stdplane, linestr);
             ncplane_set_styles(tui->stdplane, NCSTYLE_NONE);
         }
+    }
 
-        ncplane_cursor_move_yx(tui->stdplane, screen_y, line_num_width);
+    /* Draw buffer content via the renderer (which honors syntax_group). */
+    renderer_render_buffer(tui->stdplane, buf,
+                           line_num_width, 0,
+                           tui->width - line_num_width, content_height,
+                           false);
 
-        /* selection highlight: draw '~' / invert later — for now we just
-         * draw the line and accept the visual limitation. */
-        if (line_idx == buf->cursor.cursor_line) {
-            cursor_screen_y = screen_y;
-            cursor_screen_x = line_num_width +
-                (int)buf->cursor.cursor_col - (int)ed->col_offset;
+    /* Compute the cursor's screen position. */
+    int cursor_screen_y = 0;
+    int cursor_screen_x = line_num_width;
+    size_t cur_line = buf->cursor.cursor_line;
+    if (cur_line >= ed->top_line &&
+        (int)(cur_line - ed->top_line) < content_height) {
+        cursor_screen_y = (int)(cur_line - ed->top_line);
+    }
+    int ccol = (int)buf->cursor.cursor_col - (int)ed->col_offset;
+    if (ccol < 0) ccol = 0;
+    cursor_screen_x = line_num_width + ccol;
+
+    /* TODO: highlight the selected range. For now we just draw the
+     * background of selected cells in a faint color. */
+    if (buf->cursor.has_selection) {
+        size_t al = buf->cursor.sel_anchor_line;
+        size_t ac = buf->cursor.sel_anchor_col;
+        size_t cl = buf->cursor.sel_cursor_line;
+        size_t cc = buf->cursor.sel_cursor_col;
+        if (al > cl || (al == cl && ac > cc)) {
+            size_t t;
+            t = al; al = cl; cl = t;
+            t = ac; ac = cc; cc = t;
         }
-
-        ncplane_set_fg_rgb8(tui->stdplane, 0xc5, 0xc8, 0xc6);
-        /* Apply col_offset by skipping that many bytes of the line. */
-        size_t col_off = ed->col_offset;
-        size_t linelen = strlen(text);
-        if (col_off >= linelen) {
-            /* past end of line, draw nothing */
-        } else {
-            /* naive: print from col_off onward; will overshoot right edge
-             * if the line is longer than content_width. notcurses will
-             * wrap or clip depending on the plane mode. */
-            ncplane_putstr(tui->stdplane, text + col_off);
+        ncplane_set_bg_rgb8(tui->stdplane, 0x35, 0x32, 0x2f);
+        for (size_t l = al; l <= cl && (int)(l - ed->top_line) < content_height; l++) {
+            if (l < ed->top_line) continue;
+            int sy = (int)(l - ed->top_line);
+            int sx = line_num_width;
+            int ex = tui->width - 1;
+            if (l == al) sx = line_num_width + (int)ac - (int)ed->col_offset;
+            if (l == cl) {
+                int e = line_num_width + (int)cc - (int)ed->col_offset;
+                if (e < sx) e = sx;
+                ex = e;
+            }
+            if (sx < 0) sx = 0;
+            if (ex >= tui->width) ex = tui->width - 1;
+            ncplane_cursor_move_yx(tui->stdplane, sy, sx);
+            for (int xx = sx; xx <= ex; xx++) ncplane_putchar(tui->stdplane, ' ');
         }
-        ncplane_set_fg_rgb8(tui->stdplane, 0xdf, 0xdf, 0xdf);
+        /* restore bg */
+        ncplane_set_bg_rgb8(tui->stdplane, 0x1e, 0x1e, 0x2e);
+        /* re-draw the selected lines on top of the highlight (the
+         * renderer is fast enough that this is fine) */
+        renderer_render_buffer(tui->stdplane, buf,
+                               line_num_width, 0,
+                               tui->width - line_num_width, content_height,
+                               false);
     }
 
     renderer_render_statusbar(tui->stdplane, ed, 0, tui->height - 2, tui->width);

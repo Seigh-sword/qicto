@@ -84,6 +84,24 @@ typedef enum {
     QICTO_SYNTAX_COUNT
 } qicto_syntax_t;
 
+/* Syntax highlight groups. The renderer maps these to fg colors. */
+enum {
+    QICTO_HL_NONE = 0,
+    QICTO_HL_KEYWORD = 1,      /* control flow, declarations */
+    QICTO_HL_COMMENT = 2,      //, /* */, #
+    QICTO_HL_STRING = 3,       /* "..." or '...' */
+    QICTO_HL_NUMBER = 4,       /* 0x..., 1.5, 42 */
+    QICTO_HL_TYPE = 5,         /* user-defined types / classes */
+    QICTO_HL_FUNCTION = 6,     /* function names */
+    QICTO_HL_VARIABLE = 7,     /* local vars / parameters */
+    QICTO_HL_OPERATOR = 8,     /* + - * / etc */
+    QICTO_HL_PUNCTUATION = 9,  /* , ; . */
+    QICTO_HL_PREPROC = 10,     /* #include, #define */
+    QICTO_HL_CONSTANT = 11,    /* TRUE, FALSE, NULL */
+    QICTO_HL_BUILTIN = 12,     /* language built-ins */
+    QICTO_HL_COUNT
+};
+
 typedef struct {
     uint32_t cp;
     uint8_t syntax_group;
