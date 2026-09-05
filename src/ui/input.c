@@ -320,6 +320,9 @@ static void handle_insert_char(editor_t* ed, qkey_t key) {
 static char s_yank[QICTO_MAX_LINE_LEN];
 static size_t s_yank_len = 0;
 
+/* Last search pattern, for n/N repeat. */
+static char s_last_search[256] = {0};
+
 static void yank_text(const char* s, size_t n) {
     if (n >= sizeof(s_yank)) n = sizeof(s_yank) - 1;
     memcpy(s_yank, s, n);
@@ -493,29 +496,56 @@ void input_handle_normal(editor_t* ed, qkey_t key) {
             ed->cmd_cursor = 0;
             break;
         case 'n':
-            editor_set_status(ed, "no previous search");
+            if (ed->current_buffer) {
+                /* repeat the last forward search */
+                if (s_last_search[0]) {
+                    if (find_substr(ed, s_last_search, 0) == 0) {
+                        editor_set_status(ed, "found: %s", s_last_search);
+                    } else {
+                        editor_set_status(ed, "not found: %s", s_last_search);
+                    }
+                } else {
+                    editor_set_status(ed, "no previous search");
+                }
+            }
             break;
         case 'N':
-            editor_set_status(ed, "no previous search");
-            break;
-        case 'w':
-            if (buf->filename[0]) {
-                if (buffer_save(buf, buf->filename) == 0) {
-                    editor_set_status(ed, "saved: %s", buf->filename);
+            if (ed->current_buffer) {
+                if (s_last_search[0]) {
+                    if (find_substr(ed, s_last_search, 1) == 0) {
+                        editor_set_status(ed, "found: %s", s_last_search);
+                    } else {
+                        editor_set_status(ed, "not found: %s", s_last_search);
+                    }
                 } else {
-                    editor_set_status(ed, "save failed: %s", buf->filename);
+                    editor_set_status(ed, "no previous search");
                 }
-            } else {
-                editor_set_status(ed, "no filename, use :w <path>");
+            }
+            break;
+        case 'u':
+            if (ed->current_buffer) {
+                if (buffer_undo(ed->current_buffer) == 0) {
+                    editor_set_status(ed, "undo");
+                } else {
+                    editor_set_status(ed, "nothing to undo");
+                }
+            }
+            break;
+        case 'U':
+            if (ed->current_buffer) {
+                editor_set_status(ed, "redo not implemented");
             }
             break;
         case 'q':
             editor_quit(ed);
             break;
-        case 'b':
+        case 'B':
+            editor_cycle_buffer(ed, -1);
+            break;
+        case 0x0E:  /* Ctrl+N — next buffer */
             editor_cycle_buffer(ed, 1);
             break;
-        case 'B':
+        case 0x10:  /* Ctrl+P — prev buffer */
             editor_cycle_buffer(ed, -1);
             break;
         case 'p':
@@ -607,9 +637,6 @@ static void delete_selection(editor_t* ed) {
         yank_text(buf->text.lines[al] + ac, cc - ac);
     } else {
         /* multi-line: yank first line's tail, then '\n' + middle, then last line's head */
-        size_t total = (buffer_line_length(buf, al) - ac) + 1 +
-                       (cl - al - 1) * 1 /* middle full lines */;
-        /* build yank */
         size_t first_len = buffer_line_length(buf, al) - ac;
         size_t yi = 0;
         if (first_len >= sizeof(s_yank)) first_len = sizeof(s_yank) - 1;
@@ -750,19 +777,31 @@ void input_handle_command(editor_t* ed, qkey_t key) {
     }
 
     if (key == QICTO_KEY_ENTER) {
-        char* out = NULL;
-        qicto_cmd_result_t rc = commands_execute(ed->commands, ed, cmd, &out);
-        if (rc == QICTO_CMD_UNKNOWN) {
-            if (ed->mods) {
-                char* mod_out = NULL;
-                rc = mod_registry_on_command(ed->mods, ed, cmd, &mod_out);
-                if (out) free(out);
-                out = mod_out;
+        bool was_search = (ed->mode == QICTO_MODE_SEARCH);
+        if (was_search && cmd[0]) {
+            /* remember the pattern and try to find it */
+            strncpy(s_last_search, cmd, sizeof(s_last_search) - 1);
+            s_last_search[sizeof(s_last_search) - 1] = '\0';
+            if (find_substr(ed, cmd, 0) == 0) {
+                editor_set_status(ed, "found: %s", cmd);
+            } else {
+                editor_set_status(ed, "not found: %s", cmd);
             }
-        }
-        if (out) {
-            editor_set_status(ed, "%s", out);
-            free(out);
+        } else if (cmd[0]) {
+            char* out = NULL;
+            qicto_cmd_result_t rc = commands_execute(ed->commands, ed, cmd, &out);
+            if (rc == QICTO_CMD_UNKNOWN) {
+                if (ed->mods) {
+                    char* mod_out = NULL;
+                    rc = mod_registry_on_command(ed->mods, ed, cmd, &mod_out);
+                    if (out) free(out);
+                    out = mod_out;
+                }
+            }
+            if (out) {
+                editor_set_status(ed, "%s", out);
+                free(out);
+            }
         }
         memset(cmd, 0, sizeof(ed->cmd_buffer));
         *cursor = 0;

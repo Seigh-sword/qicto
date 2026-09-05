@@ -19,5 +19,7 @@ void buffer_update_render(buffer_t* buf);
 void buffer_set_cursor(buffer_t* buf, size_t line, size_t col);
 void buffer_validate_cursor(buffer_t* buf);
 const char* buffer_display_name(buffer_t* buf);
+int buffer_undo(buffer_t* buf);
+void buffer_undo_clear(buffer_t* buf);
 
 #endif

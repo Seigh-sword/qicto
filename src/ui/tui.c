@@ -181,7 +181,7 @@ qkey_t tui_read_key(tui_state_t* tui) {
 void tui_handle_key(tui_state_t* tui, editor_t* ed, qkey_t key) {
     if (!tui || !ed) return;
 
-    if (ed->mode == QICTO_MODE_COMMAND) {
+    if (ed->mode == QICTO_MODE_COMMAND || ed->mode == QICTO_MODE_SEARCH) {
         input_handle_command(ed, key);
         tui_render(tui, ed);
         return;

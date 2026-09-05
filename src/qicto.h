@@ -114,6 +114,12 @@ typedef struct {
     size_t capacity;
 } qicto_text_lines_t;
 
+typedef struct {
+    char** lines;
+    size_t line_count;
+    qicto_cursor_t cursor;
+} buffer_snapshot_t;
+
 typedef struct buffer_t {
     char filename[QICTO_MAX_PATH_LEN];
     char display_name[QICTO_MAX_NAME_LEN];
@@ -134,6 +140,13 @@ typedef struct buffer_t {
     int id;
     struct buffer_t* next;
     struct buffer_t* prev;
+
+    /* undo ring — full snapshots. Each push snapshots the entire text
+     * and cursor. Suitable for files up to a few MB. */
+    buffer_snapshot_t* undo_stack;
+    size_t undo_count;
+    size_t undo_capacity;
+    size_t undo_head;   /* index of next slot to write */
 } buffer_t;
 
 typedef struct {

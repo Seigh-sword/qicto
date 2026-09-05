@@ -1,9 +1,11 @@
+#define _POSIX_C_SOURCE 200809L
 #include "buffer.h"
 #include "utils/strings.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#include <strings.h>  /* strcasecmp */
 #include <cwalk.h>
 #include <utf8proc.h>
 
@@ -112,6 +114,7 @@ static void free_render_lines(buffer_t* buf) {
 
 void buffer_free(buffer_t* buf) {
     if (!buf) return;
+    buffer_undo_clear(buf);
     free_render_lines(buf);
     if (buf->text.lines) {
         for (size_t i = 0; i < buf->text.line_count; i++) {
@@ -181,6 +184,7 @@ int buffer_load_file(buffer_t* buf, const char* filename) {
 
     free(data);
     buf->dirty = false;
+    buffer_undo_clear(buf);
 
     buffer_detect_syntax(buf, filename);
 
@@ -220,8 +224,86 @@ int buffer_save(buffer_t* buf, const char* filename) {
     return 0;
 }
 
+static void buffer_snapshot_free_slot(buffer_snapshot_t* snap) {
+    if (!snap) return;
+    for (size_t i = 0; i < snap->line_count; i++) free(snap->lines[i]);
+    free(snap->lines);
+    snap->lines = NULL;
+    snap->line_count = 0;
+}
+
+static void buffer_snapshot(buffer_t* buf) {
+    if (!buf) return;
+    /* Lazily allocate the ring buffer the first time. */
+    if (!buf->undo_stack) {
+        buf->undo_capacity = 64;
+        buf->undo_stack = calloc(buf->undo_capacity, sizeof(buffer_snapshot_t));
+        if (!buf->undo_stack) { buf->undo_capacity = 0; return; }
+    }
+    /* The head slot is the one we're about to write. If we previously
+     * wrote to it, free those lines first so we don't leak. */
+    buffer_snapshot_free_slot(&buf->undo_stack[buf->undo_head]);
+    buffer_snapshot_t* snap = &buf->undo_stack[buf->undo_head];
+    snap->lines = calloc(buf->text.line_count + 1, sizeof(char*));
+    if (!snap->lines) { snap->line_count = 0; return; }
+    for (size_t i = 0; i < buf->text.line_count; i++) {
+        const char* ln = buf->text.lines[i];
+        snap->lines[i] = ln ? qstr_dup(ln) : qstr_dup("");
+    }
+    snap->line_count = buf->text.line_count;
+    snap->cursor = buf->cursor;
+    if (buf->undo_count < buf->undo_capacity) buf->undo_count++;
+    buf->undo_head = (buf->undo_head + 1) % buf->undo_capacity;
+}
+
+int buffer_undo(buffer_t* buf) {
+    if (!buf || buf->undo_count == 0) return -1;
+    /* The most recent snapshot is the one just before undo_head, modulo
+     * capacity. */
+    size_t idx = (buf->undo_head + buf->undo_capacity - 1) % buf->undo_capacity;
+    buffer_snapshot_t* snap = &buf->undo_stack[idx];
+    /* restore text */
+    for (size_t i = 0; i < buf->text.line_count; i++) free(buf->text.lines[i]);
+    free(buf->text.lines);
+    buf->text.lines = calloc(snap->line_count + 1, sizeof(char*));
+    if (!buf->text.lines) {
+        buf->text.line_count = 0;
+        return -1;
+    }
+    for (size_t i = 0; i < snap->line_count; i++) {
+        buf->text.lines[i] = qstr_dup(snap->lines[i] ? snap->lines[i] : "");
+    }
+    buf->text.line_count = snap->line_count;
+    buf->text.capacity = snap->line_count + 1;
+    buf->cursor = snap->cursor;
+    /* free the snapshot's lines so it can't be reused */
+    buffer_snapshot_free_slot(snap);
+    buf->undo_count--;
+    if (buf->undo_count == 0) buf->undo_head = 0;
+    else buf->undo_head = idx;
+    buf->render_valid = false;
+    buf->dirty = true;
+    return 0;
+}
+
+void buffer_undo_clear(buffer_t* buf) {
+    if (!buf || !buf->undo_stack) return;
+    for (size_t i = 0; i < buf->undo_capacity; i++) {
+        buffer_snapshot_t* snap = &buf->undo_stack[i];
+        for (size_t j = 0; j < snap->line_count; j++) free(snap->lines[j]);
+        free(snap->lines);
+    }
+    free(buf->undo_stack);
+    buf->undo_stack = NULL;
+    buf->undo_count = 0;
+    buf->undo_head = 0;
+    buf->undo_capacity = 0;
+}
+
 void buffer_insert_char(buffer_t* buf, size_t line, size_t col, char c) {
     if (!buf || line >= buf->text.line_count) return;
+
+    buffer_snapshot(buf);
 
     char* ln = buf->text.lines[line];
     size_t len = strlen(ln);
@@ -241,6 +323,8 @@ void buffer_insert_char(buffer_t* buf, size_t line, size_t col, char c) {
 
 void buffer_insert_text(buffer_t* buf, size_t line, size_t col, const char* text) {
     if (!buf || !text || line >= buf->text.line_count) return;
+
+    buffer_snapshot(buf);
 
     char* ln = buf->text.lines[line];
     size_t len = strlen(ln);
@@ -262,6 +346,8 @@ void buffer_insert_text(buffer_t* buf, size_t line, size_t col, const char* text
 void buffer_remove_char(buffer_t* buf, size_t line, size_t col) {
     if (!buf || line >= buf->text.line_count) return;
 
+    buffer_snapshot(buf);
+
     char* ln = buf->text.lines[line];
     size_t len = strlen(ln);
 
@@ -274,6 +360,8 @@ void buffer_remove_char(buffer_t* buf, size_t line, size_t col) {
 
 void buffer_remove_range(buffer_t* buf, size_t line, size_t col, size_t rlen) {
     if (!buf || line >= buf->text.line_count) return;
+
+    buffer_snapshot(buf);
 
     char* ln = buf->text.lines[line];
     size_t len = strlen(ln);
@@ -289,6 +377,7 @@ void buffer_remove_range(buffer_t* buf, size_t line, size_t col, size_t rlen) {
 void buffer_split_line(buffer_t* buf, size_t line, size_t col) {
     if (!buf || line >= buf->text.line_count) return;
 
+    buffer_snapshot(buf);
     buffer_ensure_capacity(buf, buf->text.line_count + 1);
 
     char* ln = buf->text.lines[line];
@@ -309,6 +398,8 @@ void buffer_split_line(buffer_t* buf, size_t line, size_t col) {
 
 void buffer_join_lines(buffer_t* buf, size_t line) {
     if (!buf || line + 1 >= buf->text.line_count) return;
+
+    buffer_snapshot(buf);
 
     char* ln = buf->text.lines[line];
     char* next = buf->text.lines[line + 1];

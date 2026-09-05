@@ -1,8 +1,9 @@
+#define _POSIX_C_SOURCE 200809L
 #include "fileops.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <string.h>
+#include <strings.h>
 #include <cwalk.h>
 
 int fileops_read_text(const char* path, char** out_content, size_t* out_size) {

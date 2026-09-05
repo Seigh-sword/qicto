@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "command.h"
 #include "editor.h"
 #include "buffer.h"
@@ -250,4 +251,91 @@ qicto_cmd_result_t cmd_lsmods(editor_t* ed, const char* args, char** out) {
     }
     if (out) *out = strdup(tmp);
     return QICTO_CMD_SUCCESS;
+}
+
+qicto_cmd_result_t cmd_undo(editor_t* ed, const char* args, char** out) {
+    (void)args;
+    if (!ed || !ed->current_buffer) return QICTO_CMD_ERROR;
+    if (buffer_undo(ed->current_buffer) == 0) {
+        if (out) *out = strdup("undo");
+        return QICTO_CMD_SUCCESS;
+    }
+    if (out) *out = strdup("nothing to undo");
+    return QICTO_CMD_ERROR;
+}
+
+/* Search using pcre2 is wired through Dependencies.cmake, but the C API
+ * surface is significant. For now do a simple case-sensitive substring
+ * scan. This is the same fallback vim uses for non-regex searches and
+ * is plenty for the common case. Returns 0 on match, -1 if not found. */
+int find_substr(editor_t* ed, const char* needle, int reverse) {
+    if (!ed || !ed->current_buffer || !needle || !*needle) return -1;
+    buffer_t* buf = ed->current_buffer;
+    size_t nlen = strlen(needle);
+    if (reverse) {
+        if (buf->cursor.cursor_line == 0 && buf->cursor.cursor_col == 0) return -1;
+        size_t line = buf->cursor.cursor_line;
+        size_t col = buf->cursor.cursor_col;
+        /* search backward: scan current line up to col, then prior lines */
+        while (1) {
+            const char* ln = buf->text.lines[line];
+            size_t llen = ln ? strlen(ln) : 0;
+            size_t start = (line == buf->cursor.cursor_line) ? col : llen;
+            if (start > 0) {
+                for (size_t i = start; i-- > 0; ) {
+                    if (i + nlen <= llen &&
+                        strncmp(ln + i, needle, nlen) == 0) {
+                        buf->cursor.cursor_line = line;
+                        buf->cursor.cursor_col = i;
+                        return 0;
+                    }
+                }
+            }
+            if (line == 0) break;
+            line--;
+        }
+        return -1;
+    } else {
+        size_t line = buf->cursor.cursor_line;
+        size_t col = buf->cursor.cursor_col;
+        while (line < buf->text.line_count) {
+            const char* ln = buf->text.lines[line];
+            size_t llen = ln ? strlen(ln) : 0;
+            size_t start = (line == buf->cursor.cursor_line) ? col + 1 : 0;
+            if (start < llen) {
+                for (size_t i = start; i + nlen <= llen; i++) {
+                    if (strncmp(ln + i, needle, nlen) == 0) {
+                        buf->cursor.cursor_line = line;
+                        buf->cursor.cursor_col = i;
+                        return 0;
+                    }
+                }
+            }
+            line++;
+        }
+        return -1;
+    }
+}
+
+qicto_cmd_result_t cmd_search(editor_t* ed, const char* args, char** out) {
+    if (!ed || !ed->current_buffer) return QICTO_CMD_ERROR;
+    if (!args || !*args) {
+        if (out) *out = strdup("usage: :search <text>  (or /text in NORMAL mode)");
+        return QICTO_CMD_ERROR;
+    }
+    int rc = find_substr(ed, args, 0);
+    if (rc == 0) {
+        if (out) {
+            char tmp[256];
+            snprintf(tmp, sizeof(tmp), "found: %s", args);
+            *out = strdup(tmp);
+        }
+        return QICTO_CMD_SUCCESS;
+    }
+    if (out) {
+        char tmp[256];
+        snprintf(tmp, sizeof(tmp), "not found: %s", args);
+        *out = strdup(tmp);
+    }
+    return QICTO_CMD_ERROR;
 }

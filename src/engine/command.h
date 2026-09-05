@@ -24,6 +24,10 @@ int commands_register(command_registry_t* cmds, const char* name, command_fn fn,
 command_entry_t* commands_find(command_registry_t* cmds, const char* name);
 qicto_cmd_result_t commands_execute(command_registry_t* cmds, editor_t* ed, const char* input, char** out);
 void commands_list(command_registry_t* cmds, char*** names, size_t* count);
+
+/* Substring search used by :search and n/N repeat. Returns 0 on match,
+ * -1 if not found. */
+int find_substr(editor_t* ed, const char* needle, int reverse);
 qicto_cmd_result_t cmd_quit(editor_t* ed, const char* args, char** out);
 qicto_cmd_result_t cmd_write(editor_t* ed, const char* args, char** out);
 qicto_cmd_result_t cmd_edit(editor_t* ed, const char* args, char** out);
@@ -31,5 +35,7 @@ qicto_cmd_result_t cmd_buffer(editor_t* ed, const char* args, char** out);
 qicto_cmd_result_t cmd_help(editor_t* ed, const char* args, char** out);
 qicto_cmd_result_t cmd_version(editor_t* ed, const char* args, char** out);
 qicto_cmd_result_t cmd_lsmods(editor_t* ed, const char* args, char** out);
+qicto_cmd_result_t cmd_undo(editor_t* ed, const char* args, char** out);
+qicto_cmd_result_t cmd_search(editor_t* ed, const char* args, char** out);
 
 #endif

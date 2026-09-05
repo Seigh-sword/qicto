@@ -43,6 +43,10 @@ editor_t* editor_create(void) {
     commands_register(ed->commands, "help", cmd_help, "Show help");
     commands_register(ed->commands, "version", cmd_version, "Show version");
     commands_register(ed->commands, "lsmods", cmd_lsmods, "List loaded modules");
+    commands_register(ed->commands, "undo", cmd_undo, "Undo last edit (:undo)");
+    commands_register(ed->commands, "u", cmd_undo, "Undo last edit");
+    commands_register(ed->commands, "search", cmd_search, "Search forward (:search <text>)");
+    commands_register(ed->commands, "/", cmd_search, "Search forward (alias)");
 
     ed->layout.windows = NULL;
     ed->layout.window_count = 0;
