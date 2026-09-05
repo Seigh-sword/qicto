@@ -107,6 +107,41 @@ TEST_BEGIN(test_buffer_detect_syntax) {
     buffer_free(buf);
 }
 
+TEST_BEGIN(test_buffer_undo) {
+    buffer_t* buf = buffer_new(NULL);
+    /* undo of an empty stack should fail */
+    ASSERT(buffer_undo(buf) == -1, "undo on empty should fail");
+
+    /* insert, undo, verify */
+    buffer_insert_text(buf, 0, 0, "hello");
+    ASSERT_STR_EQ(buffer_get_line(buf, 0), "hello", "after insert");
+    ASSERT(buffer_undo(buf) == 0, "undo should succeed");
+    ASSERT_STR_EQ(buffer_get_line(buf, 0), "", "after undo line should be empty");
+
+    /* multiple operations -> undo each one */
+    buffer_insert_text(buf, 0, 0, "a");
+    buffer_insert_text(buf, 0, 1, "b");
+    buffer_insert_text(buf, 0, 2, "c");
+    ASSERT_STR_EQ(buffer_get_line(buf, 0), "abc", "after 3 inserts");
+    ASSERT(buffer_undo(buf) == 0, "undo c");
+    ASSERT_STR_EQ(buffer_get_line(buf, 0), "ab", "after undo c");
+    ASSERT(buffer_undo(buf) == 0, "undo b");
+    ASSERT_STR_EQ(buffer_get_line(buf, 0), "a", "after undo b");
+    ASSERT(buffer_undo(buf) == 0, "undo a");
+    ASSERT_STR_EQ(buffer_get_line(buf, 0), "", "after undo a");
+    ASSERT(buffer_undo(buf) == -1, "no more undos");
+
+    /* split and join should be undoable */
+    buffer_insert_text(buf, 0, 0, "hi");
+    buffer_split_line(buf, 0, 1);
+    ASSERT_EQ(buf->text.line_count, 2, "two lines after split");
+    ASSERT(buffer_undo(buf) == 0, "undo split");
+    ASSERT_EQ(buf->text.line_count, 1, "one line after undo");
+    ASSERT_STR_EQ(buffer_get_line(buf, 0), "hi", "restored");
+
+    buffer_free(buf);
+}
+
 int main(void) {
     RUN_TEST(test_buffer_create);
     RUN_TEST(test_buffer_insert_char);
@@ -116,5 +151,6 @@ int main(void) {
     RUN_TEST(test_buffer_set_cursor);
     RUN_TEST(test_buffer_load_save);
     RUN_TEST(test_buffer_detect_syntax);
+    RUN_TEST(test_buffer_undo);
     TEST_SUMMARY();
 }
