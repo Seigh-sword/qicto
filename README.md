@@ -8,92 +8,140 @@ A fast, modular TUI text editor written in C11.
 
 ## What is QICTO?
 
-**QICTO** is a vim-inspired, modal terminal text editor designed for **speed and extensibility**. Every feature beyond core text editing lives in a `module`, making the editor `lightweight` at its core and `infinitely expandable`.
+QICTO is a modern, modal terminal code editor. It borrows the modal flow of vim but
+aims for the speed and feel of a code editor. Every feature beyond core text
+editing lives in a `module`, so the core stays small and the surface grows without
+touching it.
 
-## Key Features
+## Highlights
 
-- **Modal Editing** — NORMAL, INSERT, VISUAL, SELECT, COMMAND, and SEARCH modes
-- **Buffer-Centric** — Multiple files open simultaneously as buffers
-- **Modular Architecture** — Builtin + dynamically loaded modules
-- **TUI Rendering** — Powered by notcurses v3.0.x for modern terminal graphics
-- **Cross-Platform** — Windows (MSYS2/MinGW), Linux, macOS
-- **UTF-8 Aware** — Full Unicode support via utf8proc
-- **Syntax Highlighting** — Keyword-based highlighting with tree-sitter grammars compiled in
-- **Git Integration** — Built on libgit2 for version control features
-- **Static Linking** — Single binary deployment preferred
+- **Modal editing** — NORMAL, INSERT, VISUAL, COMMAND, and SEARCH modes
+- **Buffers** — Multiple files open at once; cycle with `B`, `Ctrl+N`, `Ctrl+P`
+- **Tree-sitter highlighting** — Real grammar-driven coloring for C and C++,
+  with a keyword-based fallback for everything else
+- **Undo** — 64-step linear history with `:undo` or `u`
+- **Search** — `/text` to search forward, `n`/`N` for next/prev, last pattern remembered
+- **Word motions** — `w`/`b`/`e` and `0`/`$`/`^`/`gg`/`G`, plus `PgUp`/`PgDn`
+- **Visual mode** — `v` character-wise, `V` line-wise, then `x`/`d` to delete, `y` to yank
+- **Yank/paste** — Single register; `x`, `dd`, and visual-mode ops all populate it; `p` pastes
+- **Scrolling** — Cursor is kept on screen automatically, the renderer draws
+  the line-number gutter and any per-cell syntax colors
+- **Splits** — A real binary-tree layout (`qicto_layout_t`); nodes can be split,
+  closed, and resized. The editor still draws the active leaf for now, the
+  splitting primitives are ready for a multi-pane UI
+- **Modules** — Builtin and dynamically loaded; `syntax`, `statusbar`, `filetree`
+  ship in the binary
+- **UTF-8 aware** — All text handled through utf8proc, so multi-byte
+  characters and display width are correct
 
 ## Quick Start
 
 ### Prerequisites
 
 - CMake 3.21 or later
-- Ninja build system
-- C11 compiler (GCC 16+ or Clang 16+)
-- C++ compiler (for tree-sitter grammars)
+- Ninja
+- A C11 compiler (GCC 12+ or Clang 14+ work; GCC 16+ recommended for tree-sitter)
+- A C++ compiler (the tree-sitter grammars are C++)
 
 ### Build
 
 ```bash
-# to configure the project
 cmake -B build -G Ninja
-
-# building command is...
 cmake --build build
-
-# finally for running...
 ./build/bin/qicto
 ```
 
 ### Windows (MSYS2 ucrt64)
 
 ```bash
-# to install dependencies run these...
-pacman -S mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja \
-         mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-libunistring
+pacman -S mingw-w64-ucrt-x86_64-cmake \
+          mingw-w64-ucrt-x86_64-ninja \
+          mingw-w64-ucrt-x86_64-gcc \
+          mingw-w64-ucrt-x86_64-libunistring
 
-# To build run these...
 cmake -B build -G Ninja
 cmake --build build
 ```
 
 ## Keybindings
 
+### NORMAL mode
+
 | Key | Action |
 |-----|--------|
-| `i` | Enter INSERT mode |
-| `Esc` | Return to NORMAL mode |
-| `h/j/k/l` | Move cursor left/down/up/right |
+| `i` / `a` / `A` | Enter INSERT mode (at cursor / after / end of line) |
+| `o` / `O` | Open new line below / above and enter INSERT |
+| `v` / `V` | Enter VISUAL mode (char-wise / line-wise) |
+| `Esc` | Return to NORMAL; clears the status message |
+| `h` `j` `k` `l` | Move left / down / up / right |
+| `w` / `b` / `e` | Next word / previous word / end of word |
+| `0` / `$` / `^` | Start / end / first non-blank of line |
+| `gg` / `G` | First line / last line |
+| `PgUp` / `PgDn` | Scroll one page up / down |
+| `Home` / `End` | Start / end of line |
+| `x` / `X` | Delete char under / before cursor (yanks it) |
+| `dd` | Delete current line (yanks it) |
+| `p` | Paste the yank register after the cursor |
+| `u` | Undo last edit |
+| `n` / `N` | Repeat last search forward / backward |
+| `q` | Quit (refuses if buffers are dirty) |
 | `:` | Enter COMMAND mode |
 | `/` | Enter SEARCH mode |
-| `w` | Save file |
-| `q` | Quit (if no unsaved changes) |
-| `b/B` | Next/previous buffer |
+| `B` | Previous buffer |
+| `Ctrl+N` / `Ctrl+P` | Next / previous buffer |
 
-## Commands
+### INSERT mode
 
-Type `:` in COMMAND mode to execute:
+| Key | Action |
+|-----|--------|
+| Printable keys | Insert character at cursor |
+| `Enter` | Split line |
+| `Tab` | Insert spaces (per `tab_width`) or a literal `\t` |
+| `Backspace` / `Del` | Delete char before / under cursor |
+| `Esc` | Return to NORMAL |
 
-- `:quit` or `:q` — Quit the editor
-- `:write` or `:w` — Save current buffer
-- `:edit <file>` or `:e <file>` — Open a file
-- `:buffer` or `:ls` — List buffers
-- `:help` — Show help
-- `:version` — Show version
-- `:lsmods` — List loaded modules
+### VISUAL mode
+
+| Key | Action |
+|-----|--------|
+| `h` `j` `k` `l` / `w` `b` / `0` `$` | Extend selection |
+| `v` | Return to NORMAL (keep cursor) |
+| `x` / `d` | Delete the selection (yanks it) |
+| `y` | Yank the selection, return to NORMAL |
+
+### COMMAND mode
+
+Type `:` to enter. Press `Enter` to run, `Esc` to cancel.
+
+| Command | Action |
+|---------|--------|
+| `:q` / `:quit` | Quit (refuses if dirty) |
+| `:q!` / `:quit!` | Force quit |
+| `:w` / `:write` [path] | Save current buffer |
+| `:e` / `:edit` \<path\> | Open a file |
+| `:b` / `:buffer` [N] | Switch to buffer N (omit N to list) |
+| `:ls` | List buffers |
+| `:undo` / `:u` | Undo last edit |
+| `:search` \<text\> | Search forward (same as `/`) |
+| `:help` | Show all commands with their help text |
+| `:version` | Show editor version |
+| `:lsmods` | List loaded modules |
 
 ## Configuration
 
-QICTO uses INI configuration files. The default config path is:
+QICTO uses INI config files. Default path:
 
-- Linux: `~/.config/qicto/config.ini`
-- Windows: `%APPDATA%\qicto\config.ini`
-- macOS: `~/.config/qicto/config.ini`
+- Linux: `~/.config/qicto/qicto.ini`
+- Windows: `%APPDATA%\qicto\qicto.ini`
+- macOS: `~/.config/qicto/qicto.ini`
+
+Pass an explicit file with `qicto -c path/to/config.ini`.
 
 ### Example Config
 
 ```ini
 tab_width = 4
-expand_tabs = false
+expand_tabs = true
 show_line_numbers = true
 show_whitespace = false
 auto_indent = true
@@ -106,12 +154,14 @@ project_dir = .
 
 ## Module System
 
-QICTO's functionality is organized into modules. Builtin modules are compiled into the editor, and external modules can be loaded dynamically from shared libraries.
+QICTO's functionality lives in modules. Builtin modules are linked into the
+binary; external modules are shared libraries that live in `mods_dir` and are
+loaded on startup.
 
 ### Builtin Modules
 
-- **syntax** — Keyword-based syntax highlighting for C, C++, Python, JS, Go, Rust, HTML, CSS, JSON, YAML, TOML, Markdown, Shell, Dockerfile
-- **statusbar** — Status bar rendering with mode indicator and buffer info
+- **syntax** — Tree-sitter highlighting for C/C++, keyword fallback otherwise
+- **statusbar** — Mode indicator and buffer info on the status line
 - **filetree** — File tree sidebar for project navigation
 
 ### Writing a Module
@@ -146,35 +196,36 @@ const qicto_mod_api_t* mod_get_api(void) {
 }
 ```
 
-Place the compiled `.dll`/`.so` in your mods directory.
+Drop the compiled `.dll` (Windows) or `.so` (Linux/macOS) into your `mods_dir`.
 
 ## Architecture
 
 ```
 qicto/
 ├── src/
-│   ├── main.c              Entry point, CLI parsing
-│   ├── qicto.h             Master header (all public types)
-│   ├── core/               Editor core logic
-│   │   ├── buffer.c        Text buffer management
+│   ├── main.c              Entry point, CLI parsing, main loop
+│   ├── qicto.h             Master header (all public types + the
+│   │                       QICTO_HL_* highlight groups)
+│   ├── engine/
+│   │   ├── buffer.c        Text buffer (line array, cursor, undo ring)
 │   │   ├── editor.c        Editor state machine
-│   │   ├── command.c       Command registry
+│   │   ├── command.c       Command registry and dispatch
 │   │   ├── config.c        INI config loading
 │   │   ├── module.c        Module system
 │   │   └── mod_load.c      Dynamic module loading
-│   ├── ui/                 Terminal UI
-│   │   ├── tui.c           notcurses lifecycle
-│   │   ├── renderer.c      Drawing primitives
-│   │   ├── input.c         Keyboard handling
-│   │   └── layout.c        Window layout
-│   ├── utils/              Utilities
-│   │   ├── strings.c       String & UTF-8 utilities
+│   ├── ui/
+│   │   ├── tui.c           notcurses lifecycle and main render
+│   │   ├── renderer.c      Drawing primitives, syntax color map
+│   │   ├── input.c         Keyboard mapping, modal handlers
+│   │   └── layout.c        Binary-tree split/close/resize
+│   ├── utils/
+│   │   ├── strings.c       String + UTF-8 utilities
 │   │   ├── fileops.c       File I/O wrappers
 │   │   └── dynarray.c      Dynamic arrays
-│   ├── platform/           OS abstraction
+│   ├── platform/
 │   │   ├── platform.c      Cross-platform API
 │   │   └── platform_*.c    OS-specific implementations
-│   └── modules/builtin/    Builtin modules
+│   └── modules/builtin/
 │       ├── syntax_mod.c
 │       ├── statusbar_mod.c
 │       └── filetree_mod.c
@@ -208,28 +259,22 @@ All dependencies are fetched automatically via CMake FetchContent.
 
 - CMake >= 3.21
 - Ninja
-- C11 compiler (GCC or Clang)
-- C++ compiler (for tree-sitter grammars)
+- A C11 compiler (GCC 12+ or Clang 14+; GCC 16+ recommended for tree-sitter)
+- A C++ compiler (for the tree-sitter grammars)
 - MSYS2 ucrt64 on Windows (recommended)
 
 ### Build Steps
 
 ```bash
-# Clone the repository
 git clone https://github.com/Seigh-sword/qicto.git
 cd qicto
 
-# Configure
 cmake -B build -G Ninja
-
-# Build
 cmake --build build
 
-# Run tests
 ctest --output-on-failure
 
-# Install (optional)
-cmake --install build
+cmake --install build   # optional
 ```
 
 ### Build Options
