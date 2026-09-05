@@ -8,23 +8,21 @@
 
 static int s_renderer_initialized = 0;
 
-/* Map a syntax highlight group to an RGB color. The palette is
- * loosely modeled on One Dark. */
 static void hl_color(uint8_t group, uint8_t* r, uint8_t* g, uint8_t* b) {
     switch (group) {
-        case 1:  *r = 0xc6; *g = 0x78; *b = 0xdd; break;  /* keyword: purple */
-        case 2:  *r = 0x7f; *g = 0x84; *b = 0x82; break;  /* comment:  gray */
-        case 3:  *r = 0x98; *g = 0xc3; *b = 0x79; break;  /* string:   green */
-        case 4:  *r = 0xd1; *g = 0x9a; *b = 0x66; break;  /* number:   orange */
-        case 5:  *r = 0xe5; *g = 0xc0; *b = 0x7b; break;  /* type:     yellow */
-        case 6:  *r = 0x61; *g = 0xaf; *b = 0xef; break;  /* function: blue */
-        case 7:  *r = 0xe0; *g = 0x6c; *b = 0x75; break;  /* variable: red */
-        case 8:  *r = 0x56; *g = 0x6b; *b = 0x73; break;  /* operator: dark */
-        case 9:  *r = 0xab; *g = 0xb2; *b = 0xbf; break;  /* punct:    light */
-        case 10: *r = 0xe0; *g = 0x6c; *b = 0x75; break;  /* preproc:  red */
-        case 11: *r = 0xd1; *g = 0x9a; *b = 0x66; break;  /* constant: orange */
-        case 12: *r = 0x61; *g = 0xaf; *b = 0xef; break;  /* builtin:  blue */
-        default: *r = 0xc5; *g = 0xc8; *b = 0xc6; break;  /* default:  light gray */
+        case 1:  *r = 0xc6; *g = 0x78; *b = 0xdd; break;
+        case 2:  *r = 0x7f; *g = 0x84; *b = 0x82; break;
+        case 3:  *r = 0x98; *g = 0xc3; *b = 0x79; break;
+        case 4:  *r = 0xd1; *g = 0x9a; *b = 0x66; break;
+        case 5:  *r = 0xe5; *g = 0xc0; *b = 0x7b; break;
+        case 6:  *r = 0x61; *g = 0xaf; *b = 0xef; break;
+        case 7:  *r = 0xe0; *g = 0x6c; *b = 0x75; break;
+        case 8:  *r = 0x56; *g = 0x6b; *b = 0x73; break;
+        case 9:  *r = 0xab; *g = 0xb2; *b = 0xbf; break;
+        case 10: *r = 0xe0; *g = 0x6c; *b = 0x75; break;
+        case 11: *r = 0xd1; *g = 0x9a; *b = 0x66; break;
+        case 12: *r = 0x61; *g = 0xaf; *b = 0xef; break;
+        default: *r = 0xc5; *g = 0xc8; *b = 0xc6; break;
     }
 }
 
@@ -71,9 +69,6 @@ void renderer_render_buffer(struct ncplane* plane, buffer_t* buf,
         const char* text = buffer_get_line(buf, line_idx);
         if (!text) continue;
 
-        /* If the buffer has per-cell render info with syntax groups,
-         * emit one cell at a time so colors can vary. Otherwise fall
-         * back to plain putstr. */
         if (buf->render_lines && line_idx < buf->render_line_count &&
             buf->render_lines[line_idx].cells) {
             qicto_render_line_t* rl = &buf->render_lines[line_idx];
@@ -88,7 +83,6 @@ void renderer_render_buffer(struct ncplane* plane, buffer_t* buf,
                     ncplane_set_fg_rgb8(plane, r, g, b);
                     cur_color = grp;
                 }
-                /* encode codepoint to utf-8 */
                 uint32_t cp = rl->cells[j].cp;
                 if (cp < 0x80) {
                     utf8[0] = (char)cp;

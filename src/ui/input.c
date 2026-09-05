@@ -153,8 +153,6 @@ static void move_cursor_down(editor_t* ed) {
     }
 }
 
-/* Word-boundary tests. A "word" is a run of [A-Za-z0-9_] or a run of
- * anything else that is not whitespace. */
 static int is_word_char(uint32_t cp) {
     if (cp == '_') return 1;
     return (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') ||
@@ -164,8 +162,6 @@ static int is_space(uint32_t cp) {
     return cp == ' ' || cp == '\t';
 }
 
-/* Return the column of the start of the next word to the right of
- * (line, col), or the end of the line if none. col is in bytes. */
 static size_t word_right(editor_t* ed, size_t line, size_t col) {
     buffer_t* buf = ed->current_buffer;
     if (!buf || line >= buf->text.line_count) return col;
@@ -175,13 +171,11 @@ static size_t word_right(editor_t* ed, size_t line, size_t col) {
     int cur_word = is_word_char((unsigned char)ln[col]);
     int cur_space = is_space((unsigned char)ln[col]);
     size_t i = col;
-    /* skip current run */
     if (cur_space) {
         while (i < len && is_space((unsigned char)ln[i])) i++;
     } else {
         while (i < len && is_word_char((unsigned char)ln[i]) == cur_word) i++;
     }
-    /* skip inter-word whitespace */
     while (i < len && is_space((unsigned char)ln[i])) i++;
     return i;
 }
@@ -191,18 +185,15 @@ static size_t word_left(editor_t* ed, size_t line, size_t col) {
     if (!buf || line >= buf->text.line_count) return col;
     const char* ln = buf->text.lines[line];
     if (col == 0) {
-        /* go to end of previous line if there is one */
         if (line == 0) return 0;
         return strlen(buf->text.lines[line - 1]);
     }
     size_t i = col;
-    /* step back over current char class run */
     int at_word = is_word_char((unsigned char)ln[i - 1]);
     while (i > 0 && is_word_char((unsigned char)ln[i - 1]) == at_word &&
            !is_space((unsigned char)ln[i - 1])) {
         i--;
     }
-    /* step back over whitespace */
     while (i > 0 && is_space((unsigned char)ln[i - 1])) i--;
     return i;
 }
@@ -214,21 +205,17 @@ static size_t word_end(editor_t* ed, size_t line, size_t col) {
     size_t len = strlen(ln);
     if (col >= len) return len;
     size_t i = col;
-    /* if we're at the end of a word already, advance past whitespace
-     * to the next word. */
     if (i + 1 < len && is_space((unsigned char)ln[i + 1])) {
         while (i < len && is_space((unsigned char)ln[i])) i++;
     } else {
         while (i < len && is_word_char((unsigned char)ln[i])) i++;
-        i--; /* back up so we land on the last char of the word */
+        i--;
     }
     return i;
 }
 
 static void move_page(editor_t* ed, int delta_pages) {
     if (!ed || !ed->current_buffer) return;
-    /* The actual visible rows is unknown here, but we use a sensible
-     * default. The render path will correct ed->top_line. */
     int step = 20 * delta_pages;
     if (step == 0) step = delta_pages > 0 ? 20 : -20;
     buffer_t* buf = ed->current_buffer;
@@ -316,11 +303,8 @@ static void handle_insert_char(editor_t* ed, qkey_t key) {
     }
 }
 
-/* Yank buffer: simple line-level for now. Module-static. */
 static char s_yank[QICTO_MAX_LINE_LEN];
 static size_t s_yank_len = 0;
-
-/* Last search pattern, for n/N repeat. */
 static char s_last_search[256] = {0};
 
 static void yank_text(const char* s, size_t n) {
@@ -334,8 +318,6 @@ void input_handle_normal(editor_t* ed, qkey_t key) {
     if (!ed || !ed->current_buffer) return;
     buffer_t* buf = ed->current_buffer;
 
-    /* Handle two-key sequences like 'gg'. The first key lands in
-     * ed->pending; we drain it on the next key press. */
     if (ed->pending_len > 0) {
         if (ed->pending_len == 1 && ed->pending[0] == 'g' && key == 'g') {
             ed->pending_len = 0;
@@ -343,9 +325,7 @@ void input_handle_normal(editor_t* ed, qkey_t key) {
             editor_redraw(ed);
             return;
         }
-        /* any other key finishes the sequence */
         ed->pending_len = 0;
-        /* fall through to handle the buffered char */
     }
 
     switch (key) {
@@ -376,7 +356,6 @@ void input_handle_normal(editor_t* ed, qkey_t key) {
             break;
         case '^':
             buf->cursor.cursor_col = 0;
-            /* skip leading whitespace on the line */
             {
                 const char* ln = buf->text.lines[buf->cursor.cursor_line];
                 size_t i = 0;
@@ -387,7 +366,7 @@ void input_handle_normal(editor_t* ed, qkey_t key) {
         case 'g':
             ed->pending[0] = 'g';
             ed->pending_len = 1;
-            return;  /* don't redraw until the second key arrives */
+            return;
         case 'G':
             goto_line(ed, buf->text.line_count > 0 ? buf->text.line_count - 1 : 0);
             break;
@@ -408,38 +387,29 @@ void input_handle_normal(editor_t* ed, qkey_t key) {
             }
             break;
         case 'd':
-            /* dd — delete current line */
             if (ed->pending_len == 0 || (ed->pending_len == 1 && ed->pending[0] == 'd')) {
                 if (ed->pending_len == 0) {
                     ed->pending[0] = 'd';
                     ed->pending_len = 1;
                     return;
                 }
-                /* dd */
                 ed->pending_len = 0;
                 if (buf->text.line_count > 1) {
                     yank_text(buf->text.lines[buf->cursor.cursor_line],
                               buffer_line_length(buf, buf->cursor.cursor_line));
-                    yank_text(s_yank, s_yank_len);  /* keep line + newline */
+                    yank_text(s_yank, s_yank_len);
                     s_yank[s_yank_len] = '\n';
                     s_yank_len++;
                     s_yank[s_yank_len] = '\0';
-                    /* join with the next line, then back up to start of joined line */
                     if (buf->cursor.cursor_line < buf->text.line_count - 1) {
                         buffer_join_lines(buf, buf->cursor.cursor_line);
                     } else {
-                        /* last line: just blank it out, then drop it */
                         buffer_remove_range(buf, buf->cursor.cursor_line, 0,
                                             buffer_line_length(buf, buf->cursor.cursor_line));
                         if (buf->cursor.cursor_line + 1 < buf->text.line_count) {
-                            /* remove the now-empty line by joining with next */
-                            /* actually buffer_join_lines removes a line by
-                             * concatenating; we want the inverse. implement
-                             * via split + remove_range of right part: */
                         }
                     }
                 } else {
-                    /* only one line — just clear it */
                     buffer_remove_range(buf, 0, 0, buffer_line_length(buf, 0));
                 }
                 buf->render_valid = false;
@@ -497,7 +467,6 @@ void input_handle_normal(editor_t* ed, qkey_t key) {
             break;
         case 'n':
             if (ed->current_buffer) {
-                /* repeat the last forward search */
                 if (s_last_search[0]) {
                     if (find_substr(ed, s_last_search, 0) == 0) {
                         editor_set_status(ed, "found: %s", s_last_search);
@@ -542,19 +511,17 @@ void input_handle_normal(editor_t* ed, qkey_t key) {
         case 'B':
             editor_cycle_buffer(ed, -1);
             break;
-        case 0x0E:  /* Ctrl+N — next buffer */
+        case 0x0E:
             editor_cycle_buffer(ed, 1);
             break;
-        case 0x10:  /* Ctrl+P — prev buffer */
+        case 0x10:
             editor_cycle_buffer(ed, -1);
             break;
         case 'p':
             if (s_yank_len > 0) {
-                /* insert s_yank at cursor; if it ends with \n, split the line */
                 bool ends_nl = (s_yank[s_yank_len - 1] == '\n');
                 size_t paste_len = ends_nl ? s_yank_len - 1 : s_yank_len;
                 if (paste_len > 0) {
-                    /* null-terminate slice for buffer_insert_text */
                     char tmp[QICTO_MAX_LINE_LEN];
                     if (paste_len >= sizeof(tmp)) paste_len = sizeof(tmp) - 1;
                     memcpy(tmp, s_yank, paste_len);
@@ -596,7 +563,6 @@ void input_handle_insert(editor_t* ed, qkey_t key) {
         if (ed->current_buffer) ed->current_buffer->render_valid = false;
         return;
     }
-    /* arrow keys move without leaving INSERT */
     if (key == QICTO_KEY_LEFT || key == QICTO_KEY_RIGHT ||
         key == QICTO_KEY_UP   || key == QICTO_KEY_DOWN ||
         key == QICTO_KEY_HOME || key == QICTO_KEY_END) {
@@ -617,8 +583,6 @@ void input_handle_insert(editor_t* ed, qkey_t key) {
     }
 }
 
-/* Delete the currently-selected range. For multi-line selections, we
- * delete from anchor to cursor, then drop the now-empty line if needed. */
 static void delete_selection(editor_t* ed) {
     if (!ed || !ed->current_buffer) return;
     buffer_t* buf = ed->current_buffer;
@@ -632,11 +596,9 @@ static void delete_selection(editor_t* ed) {
         t = al; al = cl; cl = t;
         t = ac; ac = cc; cc = t;
     }
-    /* yank first */
     if (al == cl) {
         yank_text(buf->text.lines[al] + ac, cc - ac);
     } else {
-        /* multi-line: yank first line's tail, then '\n' + middle, then last line's head */
         size_t first_len = buffer_line_length(buf, al) - ac;
         size_t yi = 0;
         if (first_len >= sizeof(s_yank)) first_len = sizeof(s_yank) - 1;
@@ -657,21 +619,15 @@ static void delete_selection(editor_t* ed) {
         s_yank[yi] = '\0';
         s_yank_len = yi;
     }
-    /* now actually delete */
     if (al == cl) {
         buffer_remove_range(buf, al, ac, cc - ac);
     } else {
-        /* truncate first line to ac */
         buffer_remove_range(buf, al, ac,
                             buffer_line_length(buf, al) - ac);
-        /* delete the middle lines */
         for (size_t i = al + 1; i < cl; ) {
-            /* remove line al+1 by joining it onto al (which discards it) */
             buffer_join_lines(buf, al);
             cl--;
         }
-        /* the line that was at cl is now at al+1, with content [0..cc].
-         * remove that prefix from the now-merged line, and join. */
         buffer_join_lines(buf, al);
         buffer_remove_range(buf, al, 0, cc);
     }
@@ -720,7 +676,6 @@ void input_handle_visual(editor_t* ed, qkey_t key) {
             ed->mode = QICTO_MODE_NORMAL;
             return;
         case 'y':
-            /* yank without deleting */
             {
                 size_t al = buf->cursor.sel_anchor_line;
                 size_t ac = buf->cursor.sel_anchor_col;
@@ -779,7 +734,6 @@ void input_handle_command(editor_t* ed, qkey_t key) {
     if (key == QICTO_KEY_ENTER) {
         bool was_search = (ed->mode == QICTO_MODE_SEARCH);
         if (was_search && cmd[0]) {
-            /* remember the pattern and try to find it */
             strncpy(s_last_search, cmd, sizeof(s_last_search) - 1);
             s_last_search[sizeof(s_last_search) - 1] = '\0';
             if (find_substr(ed, cmd, 0) == 0) {

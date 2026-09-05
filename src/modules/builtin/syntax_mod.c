@@ -9,13 +9,9 @@
 #include <ctype.h>
 #include <stdint.h>
 
-/* tree-sitter C/C++ grammar entry points, defined in the linked
- * tree_sitter_c / tree_sitter_cpp static libraries. */
 TSLanguage* tree_sitter_c(void);
 TSLanguage* tree_sitter_cpp(void);
 
-/* Per-syntax parser state. A parser is created lazily on first use and
- * reused across highlight passes. */
 typedef struct {
     TSParser* parser;
     TSQueryCursor* cursor;
@@ -41,10 +37,8 @@ static ts_state_t* state_for(qicto_syntax_t syntax) {
     }
 }
 
-/* Map a tree-sitter capture name to our highlight group. */
 static uint8_t map_capture(const char* name) {
     if (!name) return 0;
-    /* C/C++ captures produced by the standard tree-sitter grammars. */
     if (strcmp(name, "keyword") == 0)              return 1;
     if (strcmp(name, "comment") == 0)              return 2;
     if (strcmp(name, "string") == 0)               return 3;
@@ -64,19 +58,13 @@ static uint8_t map_capture(const char* name) {
     return 0;
 }
 
-/* Apply a tree-sitter parse to the buffer's render_lines. We do this
- * for C/C++ where we have grammars; other languages fall back to the
- * keyword pass below. */
 static void highlight_with_treesitter(buffer_t* buf, ts_state_t* st) {
     if (!st || !st->parser || !st->lang) return;
     if (!buf || buf->text.line_count == 0) return;
 
-    /* Concatenate lines into one buffer for tree-sitter (which needs a
-     * contiguous source). We track line offsets so we can map byte
-     * positions back to (line, col). */
     size_t total = 0;
     for (size_t i = 0; i < buf->text.line_count; i++) {
-        total += strlen(buf->text.lines[i]) + 1;  /* +1 for '\n' */
+        total += strlen(buf->text.lines[i]) + 1;
     }
     char* src = malloc(total + 1);
     if (!src) return;
@@ -98,26 +86,19 @@ static void highlight_with_treesitter(buffer_t* buf, ts_state_t* st) {
         cur = ts_query_cursor_new();
         st->cursor = cur;
     }
-    /* We don't have queries compiled (would require a runtime query
-     * string and a S-expression parser). Walk the AST directly and
-     * classify nodes by their type. This is what highlights does in
-     * practice when no highlights.scm is loaded. */
     ts_query_cursor_reset(cur, root);
 
-    /* Walk: for each descendant node whose type we recognise, color
-     * the bytes it covers. This is O(n) over nodes. */
     TSTreeCursor tc = ts_tree_cursor_new(root);
     TSNode node = ts_tree_cursor_current_node(&tc);
     while (!ts_node_is_null(node)) {
         const char* type = ts_node_type(node);
         uint8_t grp = 0;
-        /* Map common node types to highlight groups. */
-        if (strcmp(type, "primitive_type") == 0) grp = 1;            /* keyword-ish */
-        else if (strcmp(type, "type_identifier") == 0) grp = 5;       /* type */
-        else if (strcmp(type, "field_identifier") == 0) grp = 7;      /* variable */
-        else if (strcmp(type, "identifier") == 0) grp = 0;           /* default */
+        if (strcmp(type, "primitive_type") == 0) grp = 1;
+        else if (strcmp(type, "type_identifier") == 0) grp = 5;
+        else if (strcmp(type, "field_identifier") == 0) grp = 7;
+        else if (strcmp(type, "identifier") == 0) grp = 0;
         else if (strcmp(type, "call_expression") == 0 ||
-                 strcmp(type, "call") == 0) grp = 6;                  /* function */
+                 strcmp(type, "call") == 0) grp = 6;
         else if (strcmp(type, "function_declarator") == 0) grp = 6;
         else if (strcmp(type, "string_literal") == 0) grp = 3;
         else if (strcmp(type, "char_literal") == 0) grp = 3;
@@ -135,7 +116,6 @@ static void highlight_with_treesitter(buffer_t* buf, ts_state_t* st) {
             uint32_t sb = ts_node_start_byte(node);
             uint32_t eb = ts_node_end_byte(node);
             TSPoint sp = ts_node_start_point(node);
-            /* Walk bytes and apply group to the corresponding cell. */
             uint32_t cur_line = sp.row;
             uint32_t cur_col = sp.column;
             for (uint32_t b = sb; b < eb; b++) {
@@ -173,8 +153,6 @@ static void highlight_with_treesitter(buffer_t* buf, ts_state_t* st) {
     free(src);
 }
 
-/* Fallback keyword-based highlighter, used for languages that don't
- * have a tree-sitter grammar wired in. */
 static struct {
     const char* keyword;
     uint8_t group;
@@ -215,19 +193,16 @@ static void highlight_line_fallback(buffer_t* buf, size_t i) {
     while (pos < rl->count) {
         uint32_t cp = rl->cells[pos].cp;
 
-        /* // line comment */
         if (cp == '/' && pos + 1 < rl->count && rl->cells[pos + 1].cp == '/') {
             for (size_t j = pos; j < rl->count; j++)
                 rl->cells[j].syntax_group = 2;
             return;
         }
-        /* block comment start */
         if (cp == '/' && pos + 1 < rl->count && rl->cells[pos + 1].cp == '*') {
             for (size_t j = pos; j < rl->count; j++)
                 rl->cells[j].syntax_group = 2;
             return;
         }
-        /* string */
         if (cp == '"') {
             rl->cells[pos].syntax_group = 3;
             pos++;
@@ -239,7 +214,6 @@ static void highlight_line_fallback(buffer_t* buf, size_t i) {
             pos++;
             continue;
         }
-        /* char literal */
         if (cp == '\'') {
             rl->cells[pos].syntax_group = 3;
             pos++;
@@ -251,7 +225,6 @@ static void highlight_line_fallback(buffer_t* buf, size_t i) {
             pos++;
             continue;
         }
-        /* number */
         if (cp >= '0' && cp <= '9') {
             size_t start = pos;
             while (pos < rl->count && is_word_char_local(rl->cells[pos].cp)) pos++;
@@ -259,7 +232,6 @@ static void highlight_line_fallback(buffer_t* buf, size_t i) {
                 rl->cells[j].syntax_group = 4;
             continue;
         }
-        /* identifier / keyword */
         if (cp == '_' || (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z')) {
             size_t start = pos;
             while (pos < rl->count && is_word_char_local(rl->cells[pos].cp)) pos++;
@@ -280,8 +252,6 @@ static void highlight_line_fallback(buffer_t* buf, size_t i) {
 
 static qicto_cmd_result_t syntax_init(editor_t* ed) {
     (void)ed;
-    /* Lazily create parsers on first use. We do it here so the
-     * per-buffer init cost is paid once at startup. */
     if (!s_state_c.parser) {
         s_state_c.parser = ts_parser_new();
         if (s_state_c.parser) ts_parser_set_language(s_state_c.parser, tree_sitter_c());
@@ -314,7 +284,6 @@ static void syntax_on_buffer_changed(editor_t* ed, buffer_t* buf) {
     (void)ed;
     if (!buf) return;
 
-    /* reset all cell syntax groups before re-applying */
     if (buf->render_lines) {
         for (size_t i = 0; i < buf->render_line_count; i++) {
             qicto_render_line_t* rl = &buf->render_lines[i];
@@ -330,7 +299,6 @@ static void syntax_on_buffer_changed(editor_t* ed, buffer_t* buf) {
         highlight_with_treesitter(buf, st);
         return;
     }
-    /* fallback: keyword pass for C/C++/other languages */
     for (size_t i = 0; i < buf->render_line_count; i++) {
         highlight_line_fallback(buf, i);
     }

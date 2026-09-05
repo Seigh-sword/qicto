@@ -11,23 +11,19 @@ TEST_BEGIN(test_layout_create) {
 
 TEST_BEGIN(test_layout_split) {
     qicto_window_t* root = qicto_layout_create();
-    /* split vertically (left/right) */
     qicto_window_t* right = qicto_layout_split(root, 2);
     ASSERT(right != NULL, "split should return new pane");
     ASSERT(root->child != NULL, "root should now have a child");
     ASSERT(root->sibling == right, "root's sibling should be the new pane");
     ASSERT(root->split == 2, "split direction should be vertical");
 
-    /* splitting again should fail on root (it's no longer a leaf) */
     ASSERT(qicto_layout_split(root, 2) == NULL,
            "cannot split a non-leaf");
 
-    /* split the right pane horizontally */
     qicto_window_t* bottom = qicto_layout_split(right, 1);
     ASSERT(bottom != NULL, "split of right pane should succeed");
     ASSERT(right->split == 1, "right is now split horizontally");
 
-    /* destroy should free the whole tree */
     qicto_layout_destroy(root);
 }
 
@@ -37,7 +33,6 @@ TEST_BEGIN(test_layout_resize) {
     ASSERT_EQ(root->width, 80, "width should be 80");
     ASSERT_EQ(root->height, 24, "height should be 24");
 
-    /* split and resize, check children get half sizes */
     qicto_window_t* right = qicto_layout_split(root, 2);
     qicto_layout_resize(root, 0, 0, 100, 50);
     ASSERT_EQ(root->width, 50, "left half should be 50");
@@ -56,11 +51,9 @@ TEST_BEGIN(test_layout_resize) {
 TEST_BEGIN(test_layout_close) {
     qicto_window_t* root = qicto_layout_create();
     qicto_window_t* right = qicto_layout_split(root, 2);
-    /* close the new pane; the root should still exist */
     qicto_window_t* survivor = qicto_layout_close(right);
     ASSERT(survivor != NULL, "close should return surviving pane");
     ASSERT(survivor->parent == NULL, "survivor should be new root");
-    /* closing the last window is a no-op */
     ASSERT(qicto_layout_close(survivor) == NULL, "cannot close last window");
     qicto_layout_destroy(survivor);
 }

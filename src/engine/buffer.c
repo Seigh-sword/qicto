@@ -5,15 +5,12 @@
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
-#include <strings.h>  /* strcasecmp */
+#include <strings.h>
 #include <cwalk.h>
 #include <utf8proc.h>
 
 static uint32_t _next_buf_id = 1;
 
-/* Allocate a buffer with a single empty line. Caller must free the returned
- * string when done. Thin wrapper used in the few spots where we need a
- * heap-allocated empty string without going through the utils module. */
 static char* qicto_strdup_empty(void) {
     char* r = malloc(1);
     if (r) r[0] = '\0';
@@ -234,14 +231,11 @@ static void buffer_snapshot_free_slot(buffer_snapshot_t* snap) {
 
 static void buffer_snapshot(buffer_t* buf) {
     if (!buf) return;
-    /* Lazily allocate the ring buffer the first time. */
     if (!buf->undo_stack) {
         buf->undo_capacity = 64;
         buf->undo_stack = calloc(buf->undo_capacity, sizeof(buffer_snapshot_t));
         if (!buf->undo_stack) { buf->undo_capacity = 0; return; }
     }
-    /* The head slot is the one we're about to write. If we previously
-     * wrote to it, free those lines first so we don't leak. */
     buffer_snapshot_free_slot(&buf->undo_stack[buf->undo_head]);
     buffer_snapshot_t* snap = &buf->undo_stack[buf->undo_head];
     snap->lines = calloc(buf->text.line_count + 1, sizeof(char*));
@@ -258,11 +252,8 @@ static void buffer_snapshot(buffer_t* buf) {
 
 int buffer_undo(buffer_t* buf) {
     if (!buf || buf->undo_count == 0) return -1;
-    /* The most recent snapshot is the one just before undo_head, modulo
-     * capacity. */
     size_t idx = (buf->undo_head + buf->undo_capacity - 1) % buf->undo_capacity;
     buffer_snapshot_t* snap = &buf->undo_stack[idx];
-    /* restore text */
     for (size_t i = 0; i < buf->text.line_count; i++) free(buf->text.lines[i]);
     free(buf->text.lines);
     buf->text.lines = calloc(snap->line_count + 1, sizeof(char*));
@@ -276,7 +267,6 @@ int buffer_undo(buffer_t* buf) {
     buf->text.line_count = snap->line_count;
     buf->text.capacity = snap->line_count + 1;
     buf->cursor = snap->cursor;
-    /* free the snapshot's lines so it can't be reused */
     buffer_snapshot_free_slot(snap);
     buf->undo_count--;
     if (buf->undo_count == 0) buf->undo_head = 0;

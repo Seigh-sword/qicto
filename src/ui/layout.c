@@ -4,27 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Tree-based layout:
- *   - A qicto_window_t is a node. Leaves have no child.
- *   - A non-leaf has split != 0, a child (its "first" half) and a
- *     sibling (its "second" half).
- *   - The root is the topmost node; the active leaf is the one
- *     currently being edited.
- *
- * Splitting a leaf N:
- *   - Allocate a new leaf M.
- *   - N becomes a non-leaf with split=direction, child=N (the
- *     original pane keeps its geometry) and sibling=M (the new pane).
- *   - The new pane's geometry is filled in by the next resize.
- *
- * Closing a leaf L:
- *   - The parent of L is collapsed: it is replaced by L's sibling in
- *     the grandparent, and the parent is freed. If the parent is
- *     the root, the root becomes L's sibling. If L is the only
- *     window, close is a no-op. */
-
-/* ---- qicto_layout_* primary API ---- */
-
 qicto_window_t* qicto_layout_create(void) {
     qicto_window_t* w = calloc(1, sizeof(qicto_window_t));
     if (!w) return NULL;
@@ -46,10 +25,6 @@ qicto_window_t* qicto_layout_split(qicto_window_t* leaf, int direction) {
     if (direction != 1 && direction != 2) return NULL;
     qicto_window_t* sib = calloc(1, sizeof(qicto_window_t));
     if (!sib) return NULL;
-    /* The original leaf's geometry is captured into a new node that
-     * becomes the "first" leaf; the existing leaf becomes the parent
-     * (split node) and `sib` becomes the new "second" leaf. This
-     * keeps the original pane visually in place after the split. */
     qicto_window_t* first = calloc(1, sizeof(qicto_window_t));
     if (!first) { free(sib); return NULL; }
     *first = *leaf;
@@ -70,11 +45,10 @@ qicto_window_t* qicto_layout_split(qicto_window_t* leaf, int direction) {
 }
 
 qicto_window_t* qicto_layout_close(qicto_window_t* leaf) {
-    if (!leaf || leaf->child) return NULL;  /* not a leaf */
+    if (!leaf || leaf->child) return NULL;
     qicto_window_t* parent = leaf->parent;
-    if (!parent) return NULL;               /* cannot close the last window */
+    if (!parent) return NULL;
     qicto_window_t* survivor = leaf->sibling;
-    /* Collapse parent into survivor. */
     if (parent->parent) {
         if (parent->parent->child == parent) parent->parent->child = survivor;
         if (parent->parent->sibling == parent) parent->parent->sibling = survivor;
@@ -83,7 +57,7 @@ qicto_window_t* qicto_layout_close(qicto_window_t* leaf) {
         survivor->parent = NULL;
     }
     survivor->split = 0;
-    free(parent->child);  /* the original "first" half of the collapsed split */
+    free(parent->child);
     free(parent);
     free(leaf);
     return survivor;
@@ -117,12 +91,8 @@ void qicto_layout_resize(qicto_window_t* root, int x, int y, int width, int heig
 
 size_t qicto_layout_leaf_count(qicto_layout_t* l) {
     (void)l;
-    /* This function is not currently used by the editor but kept
-     * for API completeness. */
     return 0;
 }
-
-/* ---- Old qicto_layout_engine_t compat shim ---- */
 
 qicto_layout_engine_t* layout_create(void) {
     qicto_layout_engine_t* lc = calloc(1, sizeof(*lc));
@@ -152,8 +122,6 @@ void layout_resize(qicto_layout_engine_t* lc, int width, int height) {
 }
 
 qicto_pane_t* layout_get_active(qicto_layout_engine_t* lc) {
-    /* The old qicto_pane_t is essentially a snapshot of the active
-     * window's geometry. Return a static copy for read-only use. */
     static qicto_pane_t s_pane;
     if (!lc || !lc->active) return NULL;
     s_pane.x = lc->active->x;
@@ -171,7 +139,6 @@ void layout_split_vertical(qicto_layout_engine_t* lc) {
     if (!lc || !lc->active || lc->active->child) return;
     qicto_window_t* sib = qicto_layout_split(lc->active, 2);
     if (sib) {
-        /* focus the original (left) leaf so the cursor stays put */
         lc->active = lc->active->child;
         lc->pane_count++;
     }

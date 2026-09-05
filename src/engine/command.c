@@ -38,15 +38,11 @@ int commands_register(command_registry_t* cmds, const char* name, command_fn fn,
 
 command_entry_t* commands_find(command_registry_t* cmds, const char* name) {
     if (!cmds || !name) return NULL;
-    /* exact match first */
     for (size_t i = 0; i < cmds->count; i++) {
         if (strcmp(cmds->entries[i].name, name) == 0) {
             return &cmds->entries[i];
         }
     }
-    /* prefix match: entry's name starts with the user's input.
-     * skip if user input equals an entry name (already handled above) and
-     * require the entry to be unambiguously longer than the input. */
     command_entry_t* prefix_match = NULL;
     size_t input_len = strlen(name);
     if (input_len == 0) return NULL;
@@ -55,7 +51,6 @@ command_entry_t* commands_find(command_registry_t* cmds, const char* name) {
         if (entry_len > input_len &&
             strncmp(cmds->entries[i].name, name, input_len) == 0) {
             if (prefix_match) {
-                /* ambiguous — multiple matches, refuse to guess */
                 return NULL;
             }
             prefix_match = &cmds->entries[i];
@@ -82,9 +77,6 @@ qicto_cmd_result_t commands_execute(command_registry_t* cmds, editor_t* ed, cons
     return entry->fn(ed, args, out);
 }
 
-/* Returns a freshly-allocated array of malloc'd C strings (one per
- * command). The caller owns both the array and the strings and must
- * free each entry plus the array itself. */
 void commands_list(command_registry_t* cmds, char*** names, size_t* count) {
     if (!cmds || !names || !count) return;
     *count = cmds->count;
@@ -161,7 +153,6 @@ qicto_cmd_result_t cmd_buffer(editor_t* ed, const char* args, char** out) {
         return QICTO_CMD_SUCCESS;
     }
 
-    /* :buffer N — switch to buffer by id */
     char* endp = NULL;
     long target = strtol(args, &endp, 10);
     if (endp == args || target < 0) {
@@ -205,7 +196,6 @@ qicto_cmd_result_t cmd_help(editor_t* ed, const char* args, char** out) {
             size_t off = 0;
             buf[0] = '\0';
             for (size_t i = 0; i < count; i++) {
-                /* look up the help string for this command */
                 command_entry_t* entry = commands_find(ed->commands, names[i]);
                 const char* help = (entry && entry->help) ? entry->help : "";
                 int written = snprintf(buf + off, cap - off, "  %-12s  %s\n",
@@ -216,8 +206,6 @@ qicto_cmd_result_t cmd_help(editor_t* ed, const char* args, char** out) {
             *out = buf;
         }
     }
-    /* commands_list returns a malloc'd char**; the strings are strdup'd.
-     * We must free both. */
     if (names) {
         for (size_t i = 0; i < count; i++) free(names[i]);
         free(names);
@@ -264,10 +252,6 @@ qicto_cmd_result_t cmd_undo(editor_t* ed, const char* args, char** out) {
     return QICTO_CMD_ERROR;
 }
 
-/* Search using pcre2 is wired through Dependencies.cmake, but the C API
- * surface is significant. For now do a simple case-sensitive substring
- * scan. This is the same fallback vim uses for non-regex searches and
- * is plenty for the common case. Returns 0 on match, -1 if not found. */
 int find_substr(editor_t* ed, const char* needle, int reverse) {
     if (!ed || !ed->current_buffer || !needle || !*needle) return -1;
     buffer_t* buf = ed->current_buffer;
@@ -276,7 +260,6 @@ int find_substr(editor_t* ed, const char* needle, int reverse) {
         if (buf->cursor.cursor_line == 0 && buf->cursor.cursor_col == 0) return -1;
         size_t line = buf->cursor.cursor_line;
         size_t col = buf->cursor.cursor_col;
-        /* search backward: scan current line up to col, then prior lines */
         while (1) {
             const char* ln = buf->text.lines[line];
             size_t llen = ln ? strlen(ln) : 0;

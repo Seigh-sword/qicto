@@ -48,10 +48,12 @@ editor_t* editor_create(void) {
     commands_register(ed->commands, "search", cmd_search, "Search forward (:search <text>)");
     commands_register(ed->commands, "/", cmd_search, "Search forward (alias)");
 
-    ed->layout.windows = NULL;
-    ed->layout.window_count = 0;
+    ed->layout.root = NULL;
     ed->layout.active = NULL;
-    ed->layout.split_mode = 0;
+    ed->layout.window_count = 0;
+    ed->layout.line_num_width = 4;
+    ed->layout.status_height = 2;
+    ed->layout.cmd_height = 1;
 
     ed->statusmsg[0] = '\0';
     ed->statusmsg_time = 0;
@@ -192,7 +194,6 @@ void editor_set_status(editor_t* ed, const char* fmt, ...) {
 
 bool editor_status_active(editor_t* ed) {
     if (!ed || !ed->statusmsg[0]) return false;
-    /* default 5-second TTL */
     return (time(NULL) - ed->statusmsg_time) < 5;
 }
 
@@ -206,9 +207,6 @@ config_t* editor_config(editor_t* ed) {
     return ed ? ed->config : NULL;
 }
 
-/* Adjust top_line / col_offset so the cursor is visible in a viewport of
- * viewport_height rows and viewport_width columns, keeping at least
- * scroll_offset rows of context above and below when possible. */
 void editor_scroll_to_cursor(editor_t* ed, int viewport_height, int viewport_width) {
     if (!ed || !ed->current_buffer) return;
     if (viewport_height <= 0) viewport_height = 24;
@@ -225,8 +223,6 @@ void editor_scroll_to_cursor(editor_t* ed, int viewport_height, int viewport_wid
         if (new_top >= (size_t)viewport_height) ed->top_line = new_top - (size_t)viewport_height;
         else ed->top_line = 0;
     }
-    /* horizontal: keep cursor within ~5 cols of left edge and ~5 cols
-     * from the right edge. */
     size_t cw = buf->cursor.cursor_col;
     if ((int)cw < (int)ed->col_offset + 5) {
         ed->col_offset = (cw >= 5) ? cw - 5 : 0;

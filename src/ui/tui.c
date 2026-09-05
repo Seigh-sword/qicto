@@ -93,14 +93,11 @@ int tui_render(tui_state_t* tui, editor_t* ed) {
         line_num_width = max_digits + 2;
     }
 
-    /* keep cursor on screen */
     editor_scroll_to_cursor(ed, content_height, tui->width - line_num_width);
-    /* clamp top_line if buffer shrank (e.g. on close) */
     if (ed->top_line > 0 && ed->top_line >= buf->text.line_count) {
         ed->top_line = buf->text.line_count > 0 ? buf->text.line_count - 1 : 0;
     }
 
-    /* Draw line-number gutter. */
     for (int i = 0; i < content_height; i++) {
         size_t line_idx = ed->top_line + (size_t)i;
         if (line_idx >= buf->text.line_count) break;
@@ -115,13 +112,11 @@ int tui_render(tui_state_t* tui, editor_t* ed) {
         }
     }
 
-    /* Draw buffer content via the renderer (which honors syntax_group). */
     renderer_render_buffer(tui->stdplane, buf,
                            line_num_width, 0,
                            tui->width - line_num_width, content_height,
                            false);
 
-    /* Compute the cursor's screen position. */
     int cursor_screen_y = 0;
     int cursor_screen_x = line_num_width;
     size_t cur_line = buf->cursor.cursor_line;
@@ -133,8 +128,6 @@ int tui_render(tui_state_t* tui, editor_t* ed) {
     if (ccol < 0) ccol = 0;
     cursor_screen_x = line_num_width + ccol;
 
-    /* TODO: highlight the selected range. For now we just draw the
-     * background of selected cells in a faint color. */
     if (buf->cursor.has_selection) {
         size_t al = buf->cursor.sel_anchor_line;
         size_t ac = buf->cursor.sel_anchor_col;
@@ -162,10 +155,7 @@ int tui_render(tui_state_t* tui, editor_t* ed) {
             ncplane_cursor_move_yx(tui->stdplane, sy, sx);
             for (int xx = sx; xx <= ex; xx++) ncplane_putchar(tui->stdplane, ' ');
         }
-        /* restore bg */
         ncplane_set_bg_rgb8(tui->stdplane, 0x1e, 0x1e, 0x2e);
-        /* re-draw the selected lines on top of the highlight (the
-         * renderer is fast enough that this is fine) */
         renderer_render_buffer(tui->stdplane, buf,
                                line_num_width, 0,
                                tui->width - line_num_width, content_height,
