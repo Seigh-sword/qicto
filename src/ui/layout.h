@@ -11,11 +11,14 @@ typedef struct qicto_pane_t {
     struct qicto_pane_t* prev;
 } qicto_pane_t;
 
+/* New tree-based layout. qicto_window_t is defined in qicto.h and is
+ * the primary type. The old qicto_layout_engine_t compat shim is
+ * retained so existing callers don't break, but new code should use
+ * qicto_layout_* directly. */
 typedef struct {
-    qicto_pane_t* root;
-    qicto_pane_t* active;
-    qicto_pane_t* panes;
-    int pane_count;
+    qicto_window_t* root;
+    qicto_window_t* active;
+    size_t pane_count;
     int active_status_height;
     int active_cmd_height;
     int line_num_width;
@@ -23,6 +26,15 @@ typedef struct {
     int cmd_height;
 } qicto_layout_engine_t;
 
+qicto_window_t* qicto_layout_create(void);
+void qicto_layout_destroy(qicto_window_t* root);
+qicto_window_t* qicto_layout_split(qicto_window_t* leaf, int direction);
+qicto_window_t* qicto_layout_close(qicto_window_t* leaf);
+qicto_window_t* qicto_layout_root(qicto_window_t* w);
+void qicto_layout_resize(qicto_window_t* root, int x, int y, int width, int height);
+size_t qicto_layout_leaf_count(qicto_layout_t* layout);
+
+/* Old API (shim). */
 qicto_layout_engine_t* layout_create(void);
 void layout_destroy(qicto_layout_engine_t* lc);
 void layout_resize(qicto_layout_engine_t* lc, int width, int height);

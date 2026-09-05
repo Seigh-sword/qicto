@@ -199,15 +199,23 @@ typedef struct qicto_window_t {
     int x, y, width, height;
     buffer_t* buffer;
     int id;
-    struct qicto_window_t* next;
-    struct qicto_window_t* prev;
+    struct qicto_window_t* parent;
+    /* sibling / child pointers form a tree: a window with a child is
+     * a split; sibling is the other side of the split. */
+    struct qicto_window_t* sibling;
+    struct qicto_window_t* child;   /* when non-NULL, this window is split */
+    /* split direction: 0 = none (leaf), 1 = horizontal (top/bottom),
+     * 2 = vertical (left/right). */
+    int split;
 } qicto_window_t;
 
 typedef struct {
-    qicto_window_t* active;
-    qicto_window_t* windows;
-    size_t window_count;
-    int split_mode;
+    qicto_window_t* root;       /* always the topmost split or the single leaf */
+    qicto_window_t* active;     /* currently focused leaf */
+    size_t window_count;        /* count of leaves */
+    int line_num_width;
+    int status_height;
+    int cmd_height;
 } qicto_layout_t;
 
 typedef struct command_registry_t command_registry_t;
