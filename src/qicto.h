@@ -207,6 +207,9 @@ typedef struct qicto_window_t {
     /* split direction: 0 = none (leaf), 1 = horizontal (top/bottom),
      * 2 = vertical (left/right). */
     int split;
+    /* per-leaf scroll state, so non-active panes remember where they are */
+    size_t top_line;
+    size_t col_offset;
 } qicto_window_t;
 
 typedef struct {

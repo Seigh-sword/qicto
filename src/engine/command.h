@@ -37,5 +37,9 @@ qicto_cmd_result_t cmd_version(editor_t* ed, const char* args, char** out);
 qicto_cmd_result_t cmd_lsmods(editor_t* ed, const char* args, char** out);
 qicto_cmd_result_t cmd_undo(editor_t* ed, const char* args, char** out);
 qicto_cmd_result_t cmd_search(editor_t* ed, const char* args, char** out);
+qicto_cmd_result_t cmd_split(editor_t* ed, const char* args, char** out);
+qicto_cmd_result_t cmd_vsplit(editor_t* ed, const char* args, char** out);
+qicto_cmd_result_t cmd_close(editor_t* ed, const char* args, char** out);
+qicto_cmd_result_t cmd_focus_next(editor_t* ed, const char* args, char** out);
 
 #endif

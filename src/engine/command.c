@@ -223,6 +223,73 @@ qicto_cmd_result_t cmd_version(editor_t* ed, const char* args, char** out) {
     return QICTO_CMD_SUCCESS;
 }
 
+qicto_cmd_result_t cmd_split(editor_t* ed, const char* args, char** out) {
+    (void)args;
+    if (!ed || !ed->layout.active) return QICTO_CMD_ERROR;
+    qicto_window_t* sib = qicto_layout_split(ed->layout.active, 1);
+    if (!sib) {
+        if (out) *out = strdup("cannot split");
+        return QICTO_CMD_ERROR;
+    }
+    if (sib->buffer == NULL) {
+        sib->buffer = ed->current_buffer;
+    }
+    ed->layout.window_count++;
+    ed->layout.active = ed->layout.active->child;
+    if (out) *out = strdup("split");
+    return QICTO_CMD_SUCCESS;
+}
+
+qicto_cmd_result_t cmd_vsplit(editor_t* ed, const char* args, char** out) {
+    (void)args;
+    if (!ed || !ed->layout.active) return QICTO_CMD_ERROR;
+    qicto_window_t* sib = qicto_layout_split(ed->layout.active, 2);
+    if (!sib) {
+        if (out) *out = strdup("cannot split");
+        return QICTO_CMD_ERROR;
+    }
+    if (sib->buffer == NULL) {
+        sib->buffer = ed->current_buffer;
+    }
+    ed->layout.window_count++;
+    ed->layout.active = ed->layout.active->child;
+    if (out) *out = strdup("vsplit");
+    return QICTO_CMD_SUCCESS;
+}
+
+qicto_cmd_result_t cmd_close(editor_t* ed, const char* args, char** out) {
+    (void)args;
+    if (!ed || !ed->layout.active || !ed->layout.active->parent) {
+        if (out) *out = strdup("cannot close last window");
+        return QICTO_CMD_ERROR;
+    }
+    qicto_window_t* survivor = qicto_layout_close(ed->layout.active);
+    if (!survivor) {
+        if (out) *out = strdup("close failed");
+        return QICTO_CMD_ERROR;
+    }
+    if (survivor->parent == NULL) ed->layout.root = survivor;
+    ed->layout.active = survivor;
+    if (ed->layout.window_count > 0) ed->layout.window_count--;
+    if (out) *out = strdup("close");
+    return QICTO_CMD_SUCCESS;
+}
+
+qicto_cmd_result_t cmd_focus_next(editor_t* ed, const char* args, char** out) {
+    (void)args;
+    if (!ed || !ed->layout.active) return QICTO_CMD_ERROR;
+    qicto_window_t* cur = ed->layout.active;
+    qicto_window_t* sib = cur->parent ? cur->parent->sibling : NULL;
+    if (sib && !sib->child && sib != cur) {
+        ed->layout.active = sib;
+        if (sib->buffer) ed->current_buffer = sib->buffer;
+        if (out) *out = strdup("focus next");
+        return QICTO_CMD_SUCCESS;
+    }
+    if (out) *out = strdup("no other pane");
+    return QICTO_CMD_SUCCESS;
+}
+
 qicto_cmd_result_t cmd_lsmods(editor_t* ed, const char* args, char** out) {
     (void)args;
     if (!ed || !ed->mods) {

@@ -3,6 +3,7 @@
 #include "command.h"
 #include "config.h"
 #include "module.h"
+#include "ui/layout.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -47,10 +48,20 @@ editor_t* editor_create(void) {
     commands_register(ed->commands, "u", cmd_undo, "Undo last edit");
     commands_register(ed->commands, "search", cmd_search, "Search forward (:search <text>)");
     commands_register(ed->commands, "/", cmd_search, "Search forward (alias)");
+    commands_register(ed->commands, "split", cmd_split, "Split window horizontally (:split)");
+    commands_register(ed->commands, "vsplit", cmd_vsplit, "Split window vertically (:vsplit)");
+    commands_register(ed->commands, "close", cmd_close, "Close current pane (:close)");
+    commands_register(ed->commands, "focusnext", cmd_focus_next, "Focus next pane");
 
-    ed->layout.root = NULL;
-    ed->layout.active = NULL;
-    ed->layout.window_count = 0;
+    ed->layout.root = qicto_layout_create();
+    if (ed->layout.root) {
+        ed->layout.active = ed->layout.root;
+        ed->layout.window_count = 1;
+    } else {
+        ed->layout.root = NULL;
+        ed->layout.active = NULL;
+        ed->layout.window_count = 0;
+    }
     ed->layout.line_num_width = 4;
     ed->layout.status_height = 2;
     ed->layout.cmd_height = 1;
@@ -75,6 +86,10 @@ void editor_destroy(editor_t* ed) {
 
     if (ed->commands) commands_destroy(ed->commands);
     if (ed->mods) mod_registry_destroy(ed->mods);
+
+    if (ed->layout.root) qicto_layout_destroy(ed->layout.root);
+    ed->layout.root = NULL;
+    ed->layout.active = NULL;
 
     buffer_t* buf = ed->buffers;
     while (buf) {
@@ -121,6 +136,8 @@ buffer_t* editor_open_file(editor_t* ed, const char* filename) {
     ed->buffer_count++;
     ed->current_buffer = buf;
 
+    if (ed->layout.active) ed->layout.active->buffer = buf;
+
     if (ed->mods) {
         mod_registry_on_buffer_opened(ed->mods, ed, buf);
     }
@@ -149,6 +166,7 @@ void editor_cycle_buffer(editor_t* ed, int direction) {
             ed->current_buffer = last;
         }
     }
+    if (ed->layout.active) ed->layout.active->buffer = ed->current_buffer;
 }
 
 void editor_close_buffer(editor_t* ed, buffer_t* buf) {
