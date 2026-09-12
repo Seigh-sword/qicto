@@ -54,7 +54,9 @@ jobs:
             build-essential \
             cmake ninja-build pkg-config \
             python3 \
-            libncurses-dev
+            libncurses-dev \
+            libunistring-dev \
+            zlib1g-dev
 
       - name: Install minimal macOS build tools
         if: runner.os == 'macOS'
@@ -62,7 +64,9 @@ jobs:
           brew update
           brew install \
             cmake ninja pkg-config \
-            ncurses
+            ncurses \
+            libunistring \
+            zlib
 
       - name: Install minimal Windows build tools (MSYS2 ucrt64)
         if: runner.os == 'Windows'
@@ -77,6 +81,8 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-pkg-config
             mingw-w64-ucrt-x86_64-ncurses
+            mingw-w64-ucrt-x86_64-libunistring
+            mingw-w64-ucrt-x86_64-zlib
 
       - name: Configure (Linux + macOS)
         if: runner.os != 'Windows'
@@ -158,7 +164,7 @@ jobs:
         run: |
           CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-unused-function -Wno-unused-variable -Wno-implicit-fallthrough"
           fail=0
-          for f in src/utils/strings.c src/utils/fileops.c src/utils/dynarray.c src/engine/command.c src/engine/buffer.c; do
+          for f in src/utils/qstr.c src/utils/fileops.c src/utils/dynarray.c src/engine/command.c src/engine/buffer.c; do
             echo "Checking $f"
             if ! gcc $CFLAGS -std=c11 -I src -I src/engine -I src/utils -c "$f" -o /tmp/$(basename "$f").o; then
               fail=1
