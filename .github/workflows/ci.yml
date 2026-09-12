@@ -74,6 +74,23 @@ jobs:
             mingw-w64-ucrt-x86_64-pkg-config
             mingw-w64-ucrt-x86_64-ncurses
 
+      - name: Smoke: cmake works at all
+        if: runner.os != 'Windows'
+        run: |
+          echo "--- cmake self-test ---"
+          cmake --version
+          echo "--- minimal project ---"
+          mkdir -p /tmp/cmake-smoke && cd /tmp/cmake-smoke
+          cat > CMakeLists.txt <<'EOF'
+cmake_minimum_required(VERSION 3.21)
+project(smoke C)
+add_executable(hello main.c)
+EOF
+          echo 'int main(){return 0;}' > main.c
+          cmake -S . -B build -G Ninja 2>&1 | tail -20
+          cmake --build build 2>&1 | tail -5
+          ls -la build/hello*
+
       - name: Configure (Linux + macOS)
         if: runner.os != 'Windows'
         run: |
