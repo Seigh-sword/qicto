@@ -8,6 +8,7 @@
 #include "ui/tui.h"
 #include "platform/platform.h"
 #include "modules/builtin/mod_builtins.h"
+#include "modules/builtin/hotreload_mod.h"
 
 #include <cargs.h>
 #include <stdio.h>
@@ -138,6 +139,7 @@ int main(int argc, char* argv[]) {
     tui_render(tui, ed);
 
     while (!ed->quit_requested) {
+        hotreload_tick(ed);
         qkey_t key = tui_read_key(tui);
         if (key == QICTO_KEY_NONE) continue;
 

@@ -47,6 +47,7 @@ set(QICTO_CORE_SOURCES
     src/modules/builtin/statusbar_mod.c
     src/modules/builtin/filetree_mod.c
     src/modules/builtin/git_ui_mod.c
+    src/modules/builtin/hotreload_mod.c
     src/modules/builtin/mod_builtins.c
 )
 

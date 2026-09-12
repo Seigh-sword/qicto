@@ -3,6 +3,7 @@
 #include "statusbar_mod.h"
 #include "filetree_mod.h"
 #include "git_ui_mod.h"
+#include "hotreload_mod.h"
 #include "module.h"
 #include "editor.h"
 #include <stdlib.h>
@@ -29,4 +30,5 @@ void mod_builtins_register(editor_t* ed) {
     register_builtin(ed, statusbar_mod_get_api());
     register_builtin(ed, filetree_mod_get_api());
     register_builtin(ed, git_ui_mod_get_api());
+    register_builtin(ed, hotreload_mod_get_api());
 }
