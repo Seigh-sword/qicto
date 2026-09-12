@@ -4,7 +4,7 @@
 #include "command.h"
 #include "config.h"
 #include "module.h"
-#include "strings.h"
+#include <strings.h>
 #include <notcurses/notcurses.h>
 #include <utf8proc.h>
 #include <stdio.h>

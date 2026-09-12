@@ -4,6 +4,7 @@
 #include "config.h"
 #include "module.h"
 #include "ui/layout.h"
+#include "ui/input.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

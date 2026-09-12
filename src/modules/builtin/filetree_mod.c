@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "filetree_mod.h"
 #include "buffer.h"
 #include "editor.h"

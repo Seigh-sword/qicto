@@ -3,7 +3,8 @@
 #include "editor.h"
 #include "buffer.h"
 #include "module.h"
-#include "utils/strings.h"
+#include "utils/qstr.h"
+#include "ui/layout.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

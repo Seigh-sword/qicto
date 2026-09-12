@@ -39,7 +39,7 @@ set(QICTO_CORE_SOURCES
     src/ui/renderer.c
     src/ui/input.c
     src/ui/layout.c
-    src/utils/strings.c
+    src/utils/qstr.c
     src/utils/fileops.c
     src/utils/dynarray.c
     src/platform/platform.c

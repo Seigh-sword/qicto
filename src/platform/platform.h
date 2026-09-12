@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <time.h>
 
 typedef struct {
     uint64_t total_physical_memory;

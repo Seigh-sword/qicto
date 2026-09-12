@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "git_ui_mod.h"
 #include "buffer.h"
 #include "editor.h"
@@ -7,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #ifdef _WIN32
 #define popen _popen

@@ -1,4 +1,4 @@
-#include "strings.h"
+#include "qstr.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
