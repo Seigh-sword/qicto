@@ -71,6 +71,71 @@ int input_is_modifier(qkey_t key) {
     return (key >= QICTO_KEY_UP && key <= QICTO_KEY_F12) ? 1 : 0;
 }
 
+static int reg_index(qkey_t key) {
+    if (key >= 'a' && key <= 'z') return (int)(key - 'a');
+    return -1;
+}
+
+static void macro_record(editor_t* ed, qkey_t key) {
+    if (!ed || ed->recording_reg < 0) return;
+    int r = ed->recording_reg;
+    if (ed->macro_reg_len[r] + 1 > ed->macro_reg_cap[r]) {
+        size_t newcap = ed->macro_reg_cap[r] == 0 ? 32 : ed->macro_reg_cap[r] * 2;
+        qkey_t* nb = realloc(ed->macro_regs[r], newcap * sizeof(qkey_t));
+        if (!nb) return;
+        ed->macro_regs[r] = nb;
+        ed->macro_reg_cap[r] = newcap;
+    }
+    ed->macro_regs[r][ed->macro_reg_len[r]++] = key;
+}
+
+void macro_record_key(editor_t* ed, qkey_t key) {
+    macro_record(ed, key);
+}
+
+int macro_play(editor_t* ed, qkey_t key) {
+    if (!ed) return -1;
+    int r = reg_index(key);
+    if (r < 0 || ed->macro_reg_len[r] == 0) return -1;
+    size_t start = 0;
+    if (ed->macro_reg_len[r] >= 2 &&
+        ed->macro_regs[r][0] == 'q' &&
+        ed->macro_regs[r][1] >= 'a' && ed->macro_regs[r][1] <= 'z') {
+        start = 2;
+    }
+    int saved_rec_idx = ed->recording_reg;
+    ed->recording_reg = -1;
+    for (size_t i = start; i < ed->macro_reg_len[r]; i++) {
+        qkey_t k = ed->macro_regs[r][i];
+        if (k == '@') continue;
+        switch (ed->mode) {
+            case QICTO_MODE_NORMAL:
+                input_handle_normal(ed, k);
+                break;
+            case QICTO_MODE_INSERT:
+                input_handle_insert(ed, k);
+                break;
+            case QICTO_MODE_VISUAL:
+                input_handle_visual(ed, k);
+                break;
+            default:
+                break;
+        }
+    }
+    ed->recording_reg = saved_rec_idx;
+    return 0;
+}
+
+void editor_macro_clear(editor_t* ed) {
+    if (!ed) return;
+    for (int i = 0; i < 26; i++) {
+        free(ed->macro_regs[i]);
+        ed->macro_regs[i] = NULL;
+        ed->macro_reg_len[i] = 0;
+        ed->macro_reg_cap[i] = 0;
+    }
+}
+
 const char* key_name(qkey_t key) {
     switch (key) {
         case QICTO_KEY_UP: return "Up";
@@ -317,6 +382,47 @@ static void yank_text(const char* s, size_t n) {
 void input_handle_normal(editor_t* ed, qkey_t key) {
     if (!ed || !ed->current_buffer) return;
     buffer_t* buf = ed->current_buffer;
+
+    if (key == '@') {
+        if (ed->pending_len == 1 && ed->pending[0] == '@') {
+            ed->pending_len = 0;
+            int rc = macro_play(ed, '@');
+            editor_set_status(ed, rc == 0 ? "replay @" : "no @ register");
+            editor_redraw(ed);
+            return;
+        }
+        ed->pending[0] = '@';
+        ed->pending_len = 1;
+        return;
+    }
+    if (ed->pending_len == 1 && ed->pending[0] == '@' && key >= 'a' && key <= 'z') {
+        ed->pending_len = 0;
+        int rc = macro_play(ed, key);
+        editor_set_status(ed, rc == 0 ? "replay @%c" : "no @%c register", (char)key);
+        editor_redraw(ed);
+        return;
+    }
+
+    if (ed->pending_len == 1 && ed->pending[0] == 'q' && key >= 'a' && key <= 'z') {
+        ed->pending_len = 0;
+        int r = reg_index(key);
+        free(ed->macro_regs[r]);
+        ed->macro_regs[r] = NULL;
+        ed->macro_reg_len[r] = 0;
+        ed->macro_reg_cap[r] = 0;
+        ed->recording_reg = r;
+        editor_set_status(ed, "recording q%c", (char)key);
+        editor_redraw(ed);
+        return;
+    }
+    if (ed->recording_reg >= 0 && key == 'q') {
+        ed->recording_reg = -1;
+        editor_set_status(ed, "recording stopped");
+        editor_redraw(ed);
+        return;
+    }
+
+    macro_record(ed, key);
 
     if (ed->pending_len > 0) {
         if (ed->pending_len == 1 && ed->pending[0] == 'g' && key == 'g') {

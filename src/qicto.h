@@ -246,6 +246,11 @@ typedef struct qicto_editor_t {
     size_t last_cmd_len;
     char pending[8];     /* buffered keys for multi-key motions like gg */
     size_t pending_len;
+    /* macro record/playback: registers indexed 'a'..'z', -1 = not recording */
+    int recording_reg;
+    qkey_t* macro_regs[26];
+    size_t  macro_reg_len[26];
+    size_t  macro_reg_cap[26];
     bool quit_requested;
     bool force_quit;
 } editor_t;

@@ -13,5 +13,8 @@ void input_handle_normal(editor_t* ed, qkey_t key);
 void input_handle_insert(editor_t* ed, qkey_t key);
 void input_handle_visual(editor_t* ed, qkey_t key);
 void input_handle_command(editor_t* ed, qkey_t key);
+void editor_macro_clear(editor_t* ed);
+int macro_play(editor_t* ed, qkey_t key);
+void macro_record_key(editor_t* ed, qkey_t key);
 
 #endif

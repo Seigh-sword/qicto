@@ -91,6 +91,8 @@ void editor_destroy(editor_t* ed) {
     ed->layout.root = NULL;
     ed->layout.active = NULL;
 
+    editor_macro_clear(ed);
+
     buffer_t* buf = ed->buffers;
     while (buf) {
         buffer_t* next = buf->next;
