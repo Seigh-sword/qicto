@@ -1,151 +1,243 @@
 #include "filetree_mod.h"
+#include "buffer.h"
 #include "editor.h"
 #include "module.h"
-#include "platform.h"
-#include <notcurses/notcurses.h>
-#include <cwalk.h>
+#include "command.h"
+#include "ui/layout.h"
+
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <dirent.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#define popen _popen
+#define pclose _pclose
+#else
+#include <unistd.h>
+#endif
+
+#define QICTO_FT_MAX_ENTRIES 4096
 
 typedef struct {
-    char root_path[QICTO_MAX_PATH_LEN];
-    char** entries;
-    int entry_count;
-    int selected;
-    bool visible;
-    int width;
-} filetree_state_t;
+    char path[QICTO_MAX_PATH_LEN];
+    char status[16];
+    int is_dir;
+} ft_entry_t;
 
-static filetree_state_t s_tree = {0};
+static ft_entry_t s_entries[QICTO_FT_MAX_ENTRIES];
+static size_t s_count = 0;
+static char s_root[QICTO_MAX_PATH_LEN] = {0};
 
-static qicto_cmd_result_t filetree_init(editor_t* ed) {
-    (void)ed;
-    memset(&s_tree, 0, sizeof(s_tree));
-    s_tree.width = 30;
-    s_tree.visible = false;
+static int collect_recursive(const char* dir, const char* rel_prefix, int depth) {
+    if (depth > 6) return 0;
+    if (s_count >= QICTO_FT_MAX_ENTRIES) return 0;
+    DIR* d = opendir(dir);
+    if (!d) return 0;
+
+    struct dirent* ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') {
+            if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+            if (strcmp(ent->d_name, ".git") == 0) continue;
+            if (strcmp(ent->d_name, ".qicto") == 0) continue;
+        }
+        char child[QICTO_MAX_PATH_LEN];
+        snprintf(child, sizeof(child), "%s/%s", dir, ent->d_name);
+
+        char rel[QICTO_MAX_PATH_LEN];
+        if (rel_prefix[0]) {
+            snprintf(rel, sizeof(rel), "%s/%s", rel_prefix, ent->d_name);
+        } else {
+            snprintf(rel, sizeof(rel), "%s", ent->d_name);
+        }
+
+        struct stat st;
+        bool is_dir = false;
+        if (stat(child, &st) == 0) {
+            is_dir = S_ISDIR(st.st_mode);
+        }
+
+        if (s_count < QICTO_FT_MAX_ENTRIES) {
+            ft_entry_t* e = &s_entries[s_count++];
+            snprintf(e->path, sizeof(e->path), "%s", rel);
+            snprintf(e->status, sizeof(e->status), "%s", "");
+            e->is_dir = is_dir ? 1 : 0;
+        }
+
+        if (is_dir) {
+            collect_recursive(child, rel, depth + 1);
+        }
+        if (s_count >= QICTO_FT_MAX_ENTRIES) break;
+    }
+    closedir(d);
+    return 0;
+}
+
+static void load_git_status(const char* root) {
+    for (size_t i = 0; i < s_count; i++) {
+        s_entries[i].status[0] = '\0';
+    }
+    char cmd[QICTO_MAX_PATH_LEN * 2];
+#ifdef _WIN32
+    snprintf(cmd, sizeof(cmd), "cd \"%s\" 2>nul && git status --porcelain 2>nul", root);
+#else
+    snprintf(cmd, sizeof(cmd), "cd '%s' >/dev/null 2>&1 && git status --porcelain 2>/dev/null", root);
+#endif
+    FILE* fp = popen(cmd, "r");
+    if (!fp) return;
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
+        if (strlen(line) < 4) continue;
+        char code[3] = { line[0], line[1], '\0' };
+        char* p = line + 3;
+        char* end = p + strlen(p);
+        while (end > p && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' '))
+            end--;
+        *end = '\0';
+        char path[QICTO_MAX_PATH_LEN];
+#ifdef _WIN32
+        if (strncmp(p, "\"", 1) == 0 && strlen(p) >= 2 && p[strlen(p)-1] == '"') {
+            snprintf(path, sizeof(path), "%.*s", (int)(strlen(p)-2), p+1);
+        } else {
+            snprintf(path, sizeof(path), "%s", p);
+        }
+#else
+        snprintf(path, sizeof(path), "%s", p);
+#endif
+        for (size_t i = 0; i < s_count; i++) {
+            if (strcmp(s_entries[i].path, path) == 0) {
+                snprintf(s_entries[i].status, sizeof(s_entries[i].status),
+                         "%s", code);
+                break;
+            }
+        }
+    }
+    pclose(fp);
+}
+
+static void populate_buffer(editor_t* ed, buffer_t* buf) {
+    buffer_clear_text(buf);
+    for (size_t i = 0; i < s_count; i++) {
+        char line[QICTO_MAX_PATH_LEN + 32];
+        const char* tag = "  ";
+        if (s_entries[i].status[0] == 'M' || s_entries[i].status[1] == 'M') tag = " M";
+        else if (s_entries[i].status[0] == 'A' || s_entries[i].status[1] == 'A') tag = " A";
+        else if (s_entries[i].status[0] == '?' || s_entries[i].status[1] == '?') tag = " ?";
+        else if (s_entries[i].status[0] == 'D' || s_entries[i].status[1] == 'D') tag = " D";
+        else if (s_entries[i].status[0] == 'R' || s_entries[i].status[1] == 'R') tag = " R";
+        snprintf(line, sizeof(line), "%s%s%s\n",
+                 s_entries[i].is_dir ? "[D] " : "    ",
+                 tag,
+                 s_entries[i].path);
+        buffer_append_line(buf, line);
+    }
+    buf->syntax = QICTO_SYNTAX_UNKNOWN;
+    buf->render_valid = false;
+    buffer_update_render(buf);
+    if (ed->mods) {
+        mod_registry_on_buffer_changed(ed->mods, ed, buf);
+    }
+}
+
+qicto_cmd_result_t cmd_tree(editor_t* ed, const char* args, char** out);
+
+qicto_cmd_result_t cmd_tree(editor_t* ed, const char* args, char** out) {
+    const char* root = args && *args ? args : (ed->config && ed->config->project_dir[0]
+                                              ? ed->config->project_dir
+                                              : NULL);
+    if (!root || !*root) {
+        if (out) *out = strdup("no project dir; pass :tree <path>");
+        return QICTO_CMD_ERROR;
+    }
+    snprintf(s_root, sizeof(s_root), "%s", root);
+    s_count = 0;
+    collect_recursive(root, "", 0);
+    load_git_status(root);
+
+    buffer_t* buf = NULL;
+    char tree_buf_name[QICTO_MAX_NAME_LEN];
+    snprintf(tree_buf_name, sizeof(tree_buf_name), "[tree:%s]", root);
+    buffer_t* existing = ed->buffers;
+    while (existing) {
+        if (strcmp(existing->display_name, tree_buf_name) == 0) {
+            buf = existing;
+            break;
+        }
+        existing = existing->next;
+    }
+    if (!buf) {
+        buf = buffer_new(NULL);
+        if (!buf) return QICTO_CMD_ERROR;
+        snprintf(buf->display_name, sizeof(buf->display_name), "%s", tree_buf_name);
+        snprintf(buf->filename, sizeof(buf->filename), "%s", "");
+        buf->btype = QICTO_BUFTYPE_TEXT;
+        buf->next = ed->buffers;
+        if (ed->buffers) ed->buffers->prev = buf;
+        ed->buffers = buf;
+        ed->buffer_count++;
+        if (ed->mods) mod_registry_on_buffer_opened(ed->mods, ed, buf);
+    }
+    populate_buffer(ed, buf);
+    ed->current_buffer = buf;
+    if (ed->layout.active) ed->layout.active->buffer = buf;
+    if (out) *out = strdup("tree");
     return QICTO_CMD_SUCCESS;
 }
 
-static void filetree_cleanup(editor_t* ed) {
+static qicto_cmd_result_t ft_init(editor_t* ed) {
     (void)ed;
-    if (s_tree.entries) {
-        platform_free_dir_listing(s_tree.entries, s_tree.entry_count);
-        s_tree.entries = NULL;
-        s_tree.entry_count = 0;
-    }
+    commands_register(ed->commands, "tree", cmd_tree, "Show file tree (:tree [path])");
+    return QICTO_CMD_SUCCESS;
 }
 
-static void filetree_load_dir(const char* path) {
-    if (s_tree.entries) {
-        platform_free_dir_listing(s_tree.entries, s_tree.entry_count);
-    }
-    strncpy(s_tree.root_path, path, sizeof(s_tree.root_path) - 1);
-    s_tree.entries = platform_list_dir(path, &s_tree.entry_count);
-    s_tree.selected = 0;
+static void ft_cleanup(editor_t* ed) {
+    (void)ed;
+    s_count = 0;
 }
 
-static void filetree_on_render(editor_t* ed, void* ncp) {
-    if (!ed || !ncp || !s_tree.visible || !s_tree.entries) return;
-    struct ncplane* plane = (struct ncplane*)ncp;
-
-    int cols = ncplane_dim_x(plane);
-    int rows = ncplane_dim_y(plane);
-    int ft_width = s_tree.width;
-    if (ft_width > cols / 3) ft_width = cols / 3;
-
-    ncplane_set_bg_rgb8(plane, 0x1e, 0x1e, 0x2e);
-    ncplane_set_fg_rgb8(plane, 0xcd, 0xcd, 0xcd);
-
-    ncplane_cursor_move_yx(plane, 0, 0);
-    for (int i = 0; i < ft_width; i++) ncplane_putchar(plane, ' ');
-
-    ncplane_cursor_move_yx(plane, 1, 0);
-    for (int i = 0; i < rows - 1 && i < s_tree.entry_count; i++) {
-        if (i == s_tree.selected) {
-            ncplane_set_bg_rgb8(plane, 0x33, 0x33, 0x55);
-        }
-        ncplane_cursor_move_yx(plane, i + 1, 0);
-        ncplane_printf(plane, " %s", s_tree.entries[i]);
-        ncplane_set_bg_rgb8(plane, 0x1e, 0x1e, 0x2e);
-    }
+static void ft_on_buffer_opened(editor_t* ed, buffer_t* buf) {
+    (void)ed;
+    (void)buf;
 }
 
-static qkey_t filetree_on_key(editor_t* ed, qkey_t key) {
-    if (!s_tree.visible) return key;
-
-    switch (key) {
-        case 'j':
-            s_tree.selected++;
-            if (s_tree.selected >= s_tree.entry_count) s_tree.selected = s_tree.entry_count - 1;
-            if (s_tree.selected < 0) s_tree.selected = 0;
-            break;
-        case 'k':
-            s_tree.selected--;
-            if (s_tree.selected < 0) s_tree.selected = 0;
-            break;
-        case QICTO_KEY_ENTER:
-            if (s_tree.entries && s_tree.entry_count > 0 && s_tree.selected >= 0) {
-                char full_path[4096];
-                cwk_path_join(s_tree.root_path, s_tree.entries[s_tree.selected],
-                              full_path, sizeof(full_path));
-                if (platform_is_dir(full_path)) {
-                    filetree_load_dir(full_path);
-                } else {
-                    editor_open_file(ed, full_path);
-                    s_tree.visible = false;
-                }
-            }
-            break;
-        case QICTO_KEY_ESC:
-            s_tree.visible = false;
-            break;
-        case '\t':
-            s_tree.visible = !s_tree.visible;
-            break;
-    }
-    return key;
+static void ft_on_buffer_changed(editor_t* ed, buffer_t* buf) {
+    (void)ed;
+    (void)buf;
 }
 
-static void filetree_on_buffer_opened(editor_t* ed, buffer_t* buf) {
-    (void)ed; (void)buf;
+static void ft_on_render(editor_t* ed, void* ncp) {
+    (void)ed;
+    (void)ncp;
 }
 
-static qicto_cmd_result_t filetree_command(editor_t* ed, const char* cmd, char** out) {
-    if (!ed || !cmd) return QICTO_CMD_UNKNOWN;
-
-    if (strcmp(cmd, "filetree") == 0 || strcmp(cmd, "tree") == 0) {
-        s_tree.visible = !s_tree.visible;
-        if (s_tree.visible && !s_tree.entries) {
-            const char* dir = ".";
-            if (ed->config && ed->config->project_dir[0]) {
-                dir = ed->config->project_dir;
-            }
-            filetree_load_dir(dir);
-        }
-        return QICTO_CMD_SUCCESS;
-    }
+static qicto_cmd_result_t ft_on_command(editor_t* ed, const char* cmd, char** out) {
+    (void)ed;
+    (void)cmd;
+    (void)out;
     return QICTO_CMD_UNKNOWN;
 }
 
-static const char filetree_mod_name[] = "filetree";
-static const char filetree_mod_version[] = "0.1.0";
+static const char ft_name[] = "filetree";
+static const char ft_version[] = "0.2.0";
 
-static qicto_mod_api_t s_filetree_api = {
-    .name = filetree_mod_name,
-    .version = filetree_mod_version,
-    .description = "File tree sidebar",
-    .init = filetree_init,
-    .cleanup = filetree_cleanup,
-    .on_render = filetree_on_render,
-    .on_key = filetree_on_key,
-    .on_buffer_opened = filetree_on_buffer_opened,
-    .on_buffer_changed = NULL,
+static qicto_mod_api_t s_ft_api = {
+    .name = ft_name,
+    .version = ft_version,
+    .description = "Recursive directory listing with git status indicators (:tree [path])",
+    .init = ft_init,
+    .cleanup = ft_cleanup,
+    .on_render = ft_on_render,
+    .on_key = NULL,
+    .on_buffer_opened = ft_on_buffer_opened,
+    .on_buffer_changed = ft_on_buffer_changed,
     .on_mode_change = NULL,
     .on_config_reload = NULL,
-    .on_command = filetree_command,
+    .on_command = ft_on_command,
 };
 
 const qicto_mod_api_t* filetree_mod_get_api(void) {
-    return &s_filetree_api;
+    return &s_ft_api;
 }

@@ -21,5 +21,8 @@ void buffer_validate_cursor(buffer_t* buf);
 const char* buffer_display_name(buffer_t* buf);
 int buffer_undo(buffer_t* buf);
 void buffer_undo_clear(buffer_t* buf);
+void buffer_clear_text(buffer_t* buf);
+void buffer_append_line(buffer_t* buf, const char* line);
+void buffer_replace_text(buffer_t* buf, const char* text);
 
 #endif

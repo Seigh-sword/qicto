@@ -475,6 +475,51 @@ void buffer_set_cursor(buffer_t* buf, size_t line, size_t col) {
     buf->cursor.cursor_byte = col;
 }
 
+void buffer_clear_text(buffer_t* buf) {
+    if (!buf) return;
+    for (size_t i = 0; i < buf->text.line_count; i++) {
+        free(buf->text.lines[i]);
+    }
+    buf->text.line_count = 0;
+    buf->cursor.cursor_line = 0;
+    buf->cursor.cursor_col = 0;
+    buf->cursor.cursor_byte = 0;
+    buf->render_valid = false;
+}
+
+void buffer_append_line(buffer_t* buf, const char* line) {
+    if (!buf || !line) return;
+    if (buf->text.line_count >= buf->text.capacity) {
+        size_t newcap = buf->text.capacity == 0 ? 16 : buf->text.capacity * 2;
+        char** nl = realloc(buf->text.lines, newcap * sizeof(char*));
+        if (!nl) return;
+        buf->text.lines = nl;
+        buf->text.capacity = newcap;
+    }
+    buf->text.lines[buf->text.line_count++] = strdup(line);
+    buf->render_valid = false;
+}
+
+void buffer_replace_text(buffer_t* buf, const char* text) {
+    if (!buf) return;
+    buffer_clear_text(buf);
+    if (!text) return;
+    const char* p = text;
+    while (*p) {
+        const char* end = strchr(p, '\n');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        char* line = malloc(len + 1);
+        if (!line) return;
+        memcpy(line, p, len);
+        line[len] = '\0';
+        buffer_append_line(buf, line);
+        free(line);
+        if (!end) break;
+        p = end + 1;
+    }
+    buf->render_valid = false;
+}
+
 void buffer_validate_cursor(buffer_t* buf) {
     if (!buf) return;
     if (buf->cursor.cursor_line >= buf->text.line_count) {
