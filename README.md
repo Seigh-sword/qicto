@@ -18,8 +18,8 @@ touching it.
 
 - **Modal editing** — NORMAL, INSERT, VISUAL, COMMAND, and SEARCH modes
 - **Buffers** — Multiple files open at once; cycle with `B`, `Ctrl+N`, `Ctrl+P`
-- **Tree-sitter highlighting** — Real grammar-driven coloring for C and C++,
-  with a keyword-based fallback for everything else
+- **Tree-sitter highlighting** — Query-based coloring for C, C++, Python,
+  and Bash; keyword fallback for everything else
 - **Undo** — 64-step linear history with `:undo` or `u`
 - **Search** — `/text` to search forward, `n`/`N` for next/prev, last pattern remembered
 - **Word motions** — `w`/`b`/`e` and `0`/`$`/`^`/`gg`/`G`, plus `PgUp`/`PgDn`
@@ -27,11 +27,21 @@ touching it.
 - **Yank/paste** — Single register; `x`, `dd`, and visual-mode ops all populate it; `p` pastes
 - **Scrolling** — Cursor is kept on screen automatically, the renderer draws
   the line-number gutter and any per-cell syntax colors
-- **Splits** — A real binary-tree layout (`qicto_layout_t`); nodes can be split,
-  closed, and resized. The editor still draws the active leaf for now, the
-  splitting primitives are ready for a multi-pane UI
-- **Modules** — Builtin and dynamically loaded; `syntax`, `statusbar`, `filetree`
-  ship in the binary
+- **Multi-pane splits** — `:vsplit` / `:split` create new panes from a binary
+  tree layout, `:close` removes the active pane, `:focusnext` moves focus,
+  and each pane remembers its own scroll position
+- **Macros** — `q{a-z}` records keystrokes, `q` (while recording) stops,
+  `@{a-z}` replays
+- **Sessions** — `.qicto/project.json` saves and restores the buffer list
+  and cursor positions on quit/startup when a project directory is given
+- **File tree** — `:tree [path]` opens a buffer listing every entry under
+  the project directory with git status indicators (`[ M]`/`[ ?]`/etc)
+- **Git UI** — `:git status`, `:git diff`, `:git blame`, `:git log`,
+  `:git branch` shell out to git and dump results into scratch buffers
+- **Plugin hot-reload** — `hotreload` builtin watches `mods_dir` and
+  auto-reloads any `.so`/`.dll` whose mtime changes (1-second polling)
+- **Modules** — Builtin and dynamically loaded; `syntax`, `statusbar`,
+  `filetree`, `git-ui`, `hotreload` ship in the binary
 - **UTF-8 aware** — All text handled through utf8proc, so multi-byte
   characters and display width are correct
 
@@ -127,6 +137,17 @@ Type `:` to enter. Press `Enter` to run, `Esc` to cancel.
 | `:help` | Show all commands with their help text |
 | `:version` | Show editor version |
 | `:lsmods` | List loaded modules |
+| `:split` | Split current pane horizontally |
+| `:vsplit` | Split current pane vertically |
+| `:close` | Close current pane |
+| `:focusnext` | Focus the next pane |
+| `:tree` [path] | Show file tree of project (or `path`) with git status |
+| `:git status` / `:gitstatus` | Open git status in a buffer |
+| `:git diff` [path] / `:gitdiff` | Open git diff in a buffer |
+| `:git blame` [file] / `:gitblame` | Open git blame in a buffer |
+| `:git log` [n] / `:gitlog` | Open git log in a buffer |
+| `:git branch` / `:gitbranch` | Open git branch list in a buffer |
+| `:modreload` | Force-reload all `.so`/`.dll` from `mods_dir` |
 
 ## Configuration
 
