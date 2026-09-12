@@ -29,6 +29,7 @@ include(cmake/Dependencies.cmake)
 
 set(QICTO_CORE_SOURCES
     src/engine/buffer.c
+    src/engine/session.c
     src/engine/editor.c
     src/engine/module.c
     src/engine/mod_load.c

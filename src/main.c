@@ -4,6 +4,7 @@
 #include "engine/config.h"
 #include "engine/command.h"
 #include "engine/buffer.h"
+#include "engine/session.h"
 #include "ui/tui.h"
 #include "platform/platform.h"
 #include "modules/builtin/mod_builtins.h"
@@ -95,6 +96,10 @@ int main(int argc, char* argv[]) {
 
     if (project_dir) {
         strncpy(ed->config->project_dir, project_dir, sizeof(ed->config->project_dir) - 1);
+    } else if (argc - file_start > 0 && platform_is_dir(argv[file_start])) {
+        strncpy(ed->config->project_dir, argv[file_start],
+                sizeof(ed->config->project_dir) - 1);
+        project_dir = ed->config->project_dir;
     }
 
     mod_registry_load_dir(ed->mods, ed, ed->config->mods_dir);
@@ -107,6 +112,13 @@ int main(int argc, char* argv[]) {
             } else {
                 editor_open_file(ed, argv[i]);
             }
+        }
+    } else if (project_dir) {
+        session_load(ed, project_dir);
+        if (!ed->current_buffer) {
+            ed->current_buffer = buffer_new(NULL);
+            ed->buffers = ed->current_buffer;
+            ed->buffer_count = 1;
         }
     } else {
         ed->current_buffer = buffer_new(NULL);
@@ -140,6 +152,14 @@ int main(int argc, char* argv[]) {
         }
 
         tui_handle_key(tui, ed, key);
+    }
+
+    if (ed->config && ed->config->project_dir[0]) {
+        session_save(ed, ed->config->project_dir);
+    }
+
+    if (ed->config && ed->config->project_dir[0]) {
+        session_save(ed, ed->config->project_dir);
     }
 
     tui_deinit(tui);
