@@ -67,6 +67,8 @@ target_link_libraries(qicto_core
         notcurses
         tree_sitter_c
         tree_sitter_cpp
+        tree_sitter_python
+        tree_sitter_bash
         json-c
         uv
         pcre2-8

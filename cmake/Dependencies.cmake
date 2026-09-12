@@ -94,6 +94,24 @@ FetchContent_Declare(
 )
 FetchContent_Populate(tree_sitter_cpp)
 
+# tree-sitter for python
+FetchContent_Declare(
+    tree_sitter_python
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-python.git
+    GIT_TAG        v0.23.6
+    GIT_SHALLOW    TRUE
+)
+FetchContent_Populate(tree_sitter_python)
+
+# tree-sitter for bash
+FetchContent_Declare(
+    tree_sitter_bash
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-bash.git
+    GIT_TAG        v0.25.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_Populate(tree_sitter_bash)
+
 # for config files json 
 FetchContent_Declare(
     json_c
@@ -222,4 +240,26 @@ target_include_directories(tree_sitter_cpp PUBLIC
 )
 if(MSVC)
     target_compile_options(tree_sitter_cpp PRIVATE /wd4996)
+endif()
+
+add_library(tree_sitter_python STATIC
+    ${tree_sitter_python_SOURCE_DIR}/src/parser.c
+    ${tree_sitter_python_SOURCE_DIR}/src/scanner.c
+)
+target_include_directories(tree_sitter_python PUBLIC
+    ${tree_sitter_SOURCE_DIR}/include
+)
+if(MSVC)
+    target_compile_options(tree_sitter_python PRIVATE /wd4996)
+endif()
+
+add_library(tree_sitter_bash STATIC
+    ${tree_sitter_bash_SOURCE_DIR}/src/parser.c
+    ${tree_sitter_bash_SOURCE_DIR}/src/scanner.c
+)
+target_include_directories(tree_sitter_bash PUBLIC
+    ${tree_sitter_SOURCE_DIR}/include
+)
+if(MSVC)
+    target_compile_options(tree_sitter_bash PRIVATE /wd4996)
 endif()
