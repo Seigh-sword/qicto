@@ -5,6 +5,7 @@ A fast, modular TUI text editor written in C11.
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![License](https://img.shields.io/badge/license-Apache_2.0-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+[![CI](https://github.com/Seigh-sword/qicto/actions/workflows/ci.yml/badge.svg)](https://github.com/Seigh-sword/qicto/actions/workflows/ci.yml)
 
 ## What is QICTO?
 
@@ -285,6 +286,21 @@ cmake --install build   # optional
 | `QICTO_BUILD_MODS_DIR` | ON | Enable external module loading |
 | `QICTO_ENABLE_ASAN` | OFF | Enable AddressSanitizer |
 | `CMAKE_BUILD_TYPE` | Release | Debug or Release |
+
+## Continuous Integration
+
+Every push and pull request is built and tested by GitHub Actions on a matrix of
+platforms and architectures:
+
+- Linux x86_64 (GCC 11 and GCC 13)
+- Linux arm64 (GCC 11 and GCC 13)
+- macOS x86_64 (Apple Clang 15)
+- macOS arm64 (Apple Clang 15)
+- Windows x86_64 (MSVC 19.38)
+
+If a job fails, the build logs are uploaded as workflow artifacts so you can
+download them and inspect what broke. The matrix lives in
+`.github/workflows/ci.yml`.
 
 ## Contributing
 

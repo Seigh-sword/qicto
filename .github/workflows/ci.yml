@@ -1,0 +1,187 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+  schedule:
+    - cron: '0 3 * * *'
+
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04,         arch: x86_64, label: Linux x86_64 (GCC 11) }
+          - { os: ubuntu-24.04,         arch: x86_64, label: Linux x86_64 (GCC 13) }
+          - { os: ubuntu-22.04-arm,     arch: arm64,  label: Linux arm64 (GCC 11)  }
+          - { os: ubuntu-24.04-arm,     arch: arm64,  label: Linux arm64 (GCC 13)  }
+          - { os: macos-13,             arch: x86_64, label: macOS x86_64 (Apple Clang 15) }
+          - { os: macos-14,             arch: arm64,  label: macOS arm64 (Apple Clang 15) }
+          - { os: windows-2022,         arch: x86_64, label: Windows x86_64 (MSVC 19.38) }
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Show runner info
+        run: |
+          echo "Runner:  ${{ matrix.os }}"
+          echo "Arch:    $(uname -m 2>/dev/null || echo unknown)"
+          echo "Date:    $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake ninja-build pkg-config \
+            libnotcurses-dev libuv1-dev libpcre2-dev \
+            libutf8proc-dev libjson-c-dev libgit2-dev \
+            libncurses-dev
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install \
+            cmake ninja pkg-config \
+            notcurses libuv pcre2 \
+            utf8proc json-c libgit2 \
+            ncurses
+
+      - name: Install Windows dependencies (MSYS2 ucrt64)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ucrt64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkg-config
+            mingw-w64-ucrt-x86_64-libnotcurses
+            mingw-w64-ucrt-x86_64-libuv
+            mingw-w64-ucrt-x86_64-pcre2
+            mingw-w64-ucrt-x86_64-libutf8proc
+            mingw-w64-ucrt-x86_64-json-c
+            mingw-w64-ucrt-x86_64-libgit2
+            mingw-w64-ucrt-x86_64-ncurses
+
+      - name: Configure (Linux + macOS)
+        if: runner.os != 'Windows'
+        run: |
+          set -euxo pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQICTO_BUILD_TESTS=ON \
+            2>&1 | tee build-configure.log
+
+      - name: Configure (Windows / MSYS2)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          cd "$(cygpath -u "$GITHUB_WORKSPACE")"
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQICTO_BUILD_TESTS=ON \
+            2>&1 | tee build-configure.log
+
+      - name: Build (Linux + macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cmake --build build --parallel 2>&1 | tee build-build.log
+
+      - name: Build (Windows / MSYS2)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          cd "$(cygpath -u "$GITHUB_WORKSPACE")"
+          cmake --build build --parallel 2>&1 | tee build-build.log
+
+      - name: Test
+        run: |
+          cd build
+          ctest --output-on-failure 2>&1 | tee ../build-test.log
+
+      - name: Upload binary (on success)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qicto-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            build/bin/qicto
+            build/bin/qicto.exe
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            build-configure.log
+            build-build.log
+            build-test.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  lint:
+    name: Lint (GCC -Wall -Wextra -Werror)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libnotcurses-dev libuv1-dev libpcre2-dev \
+            libutf8proc-dev libjson-c-dev libgit2-dev \
+            libncurses-dev
+
+      - name: Lint C sources
+        run: |
+          set -euxo pipefail
+          CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter \
+                  -Wno-unused-function -Wno-unused-variable \
+                  -Wno-implicit-fallthrough \
+                  -I src -I src/engine -I src/ui -I src/utils \
+                  -I src/platform -I src/modules"
+          fail=0
+          for f in $(find src -name '*.c' -not -path 'src/modules/builtin/syntax_mod.c'); do
+            echo "Checking $f"
+            if ! gcc $CFLAGS -std=c11 -c "$f" -o /tmp/$(basename "$f").o; then
+              fail=1
+            fi
+          done
+          exit $fail
